@@ -1,0 +1,9 @@
+# Build output
+build/
+iotc
+
+# OS / editor / tooling files
+.DS_Store
+__pycache__/
+.vscode/
+.claude/

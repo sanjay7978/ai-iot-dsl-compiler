@@ -1,0 +1,4 @@
+# Lexical errors: '@' and '$' are not part of the language,
+# and '=' must be written as '=='
+IF temperature > 30 @ door = OPEN
+THEN turn_on(fan$)

@@ -1,0 +1,13 @@
+# Greenhouse irrigation
+SENSOR soil_moisture : NUMBER
+SENSOR light_level   : NUMBER
+SENSOR rain          : STATE
+DEVICE pump, grow_light, vent
+
+IF soil_moisture < 35 AND NOT rain == TRUE
+THEN turn_on(pump)
+ELSE turn_off(pump)
+
+IF light_level <= 200
+THEN turn_on(grow_light)
+     set_level(vent, 40)

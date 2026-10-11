@@ -1,0 +1,2 @@
+IF temperature > 30 AND door == OPEN
+THEN turn_on(fan)

@@ -1,0 +1,8 @@
+# Syntax errors: lowercase keyword, missing THEN, missing ')'
+if motion == ON THEN turn_on(light)
+
+IF temperature > 30 AND door == OPEN
+turn_on(fan)
+
+IF humidity < 40
+THEN turn_on(fan

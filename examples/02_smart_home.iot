@@ -1,0 +1,20 @@
+# Smart home automation rules
+SENSOR temperature : NUMBER
+SENSOR humidity    : NUMBER
+SENSOR door        : STATE
+SENSOR motion      : STATE
+DEVICE fan, light, alarm, ac
+
+# Rule 1: cool the room, otherwise switch the fan off
+IF temperature > 30 AND door == OPEN
+THEN turn_on(fan)
+ELSE turn_off(fan)
+
+# Rule 2: precedence - AND binds tighter than OR
+IF motion == ON OR temperature >= 35 AND humidity < 40
+THEN turn_on(light)
+     set_level(ac, 22.5)
+
+# Rule 3: NOT and parentheses
+IF NOT (door == CLOSED) AND (motion == ON OR humidity != 50)
+THEN turn_on(alarm)
