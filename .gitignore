@@ -7,3 +7,6 @@ iotc
 __pycache__/
 .vscode/
 .claude/
+
+# Local secrets
+.env
