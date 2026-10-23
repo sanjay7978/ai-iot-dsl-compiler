@@ -73,6 +73,8 @@ CompileResult compile(const std::string& source, const std::string& sourceName) 
             // Phase 6: optimization
             Optimizer opt;
             r.optimizedIr = opt.optimize(r.ir, r.optimization);
+            r.cfg = buildCfg(r.optimizedIr);
+            computeLiveness(r.cfg, r.optimizedIr);
             r.phases[5].status = "ok";
 
             // Phase 7: code generation

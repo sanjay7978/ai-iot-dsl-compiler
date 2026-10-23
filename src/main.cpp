@@ -7,6 +7,7 @@
 //   --symbols    Phase 4: symbol table
 //   --ir         Phase 5: intermediate code (three-address code)
 //   --opt        Phase 6: optimized intermediate code and report
+//   --cfg        Phase 6: basic blocks, control-flow graph and liveness of the optimized code
 //   --c          Phase 7: generated C code only (handy for redirecting)
 //   -o FILE      write the generated C code to FILE
 //   --dot        AST in Graphviz DOT format
@@ -31,12 +32,12 @@ namespace {
 struct Options {
     std::string file;
     std::string outFile;
-    bool tokens = false, ast = false, symbols = false, ir = false, opt = false;
+    bool tokens = false, ast = false, symbols = false, ir = false, opt = false, cfg = false;
     bool c = false, dot = false, json = false;
 };
 
 void usage() {
-    std::cerr << "usage: iotc [file.iot] [--tokens] [--ast] [--symbols] [--ir] [--opt] [--c] "
+    std::cerr << "usage: iotc [file.iot] [--tokens] [--ast] [--symbols] [--ir] [--opt] [--cfg] [--c] "
                  "[-o out.c] [--dot] [--json]\n";
 }
 
@@ -48,6 +49,7 @@ bool parseArgs(int argc, char** argv, Options& opt) {
         else if (a == "--symbols") opt.symbols = true;
         else if (a == "--ir") opt.ir = true;
         else if (a == "--opt") opt.opt = true;
+        else if (a == "--cfg") opt.cfg = true;
         else if (a == "--c") opt.c = true;
         else if (a == "--dot") opt.dot = true;
         else if (a == "--json") opt.json = true;
@@ -122,6 +124,25 @@ void printOptimization(const CompileResult& r) {
     std::cout << "\n";
 }
 
+void printCfg(const CompileResult& r) {
+    heading("PHASE 6: BASIC BLOCKS, CONTROL-FLOW GRAPH AND LIVENESS (optimized code)");
+    auto set = [](const std::set<std::string>& s) {
+        std::string t = "{";
+        for (const std::string& x : s) t += (t.size() > 1 ? ", " : "") + x;
+        return t + "}";
+    };
+    for (const BasicBlock& b : r.cfg.blocks) {
+        std::cout << "B" << b.id << (b.id == 1 ? " (entry)" : "") << "\n";
+        for (size_t i = b.first; i < b.last; ++i)
+            std::cout << "    " << irToString(r.optimizedIr[i]) << "\n";
+        std::cout << "    -> ";
+        if (b.succ.empty() && !b.exits) std::cout << "(none)";
+        for (size_t k = 0; k < b.succ.size(); ++k) std::cout << (k ? ", " : "") << "B" << b.succ[k];
+        if (b.exits) std::cout << (b.succ.empty() ? "" : ", ") << "EXIT";
+        std::cout << "\n    live in: " << set(b.liveIn) << "   live out: " << set(b.liveOut) << "\n\n";
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -171,7 +192,7 @@ int main(int argc, char** argv) {
         return status;
     }
 
-    bool any = opt.tokens || opt.ast || opt.symbols || opt.ir || opt.opt;
+    bool any = opt.tokens || opt.ast || opt.symbols || opt.ir || opt.opt || opt.cfg;
     bool all = !any && opt.outFile.empty();
 
     if (all || opt.tokens) printTokens(r.tokens);
@@ -186,6 +207,7 @@ int main(int argc, char** argv) {
         printIr(r.ir);
     }
     if ((all || opt.opt) && r.phases[5].status == "ok") printOptimization(r);
+    if ((all || opt.cfg) && r.phases[5].status == "ok") printCfg(r);
     if (all && r.generatedCode()) {
         heading("PHASE 7: GENERATED C CODE");
         std::cout << r.cCode << "\n";

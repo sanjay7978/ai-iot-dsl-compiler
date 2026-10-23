@@ -17,7 +17,9 @@ public:
                          const std::string& sourceName);
 
 private:
-    void emitRange(const std::vector<IrInstr>& code, size_t from, size_t to, int indent);
+    // Emits code[from, to). A jump to exitLabel means "leave this range".
+    void emitRange(const std::vector<IrInstr>& code, size_t from, size_t to, int indent,
+                   const std::string& exitLabel);
     std::string value(const IrValue& v) const;
     std::string line(int indent) const { return std::string(static_cast<size_t>(indent) * 4, ' '); }
 

@@ -57,13 +57,15 @@ void writeIr(const std::vector<IrInstr>& code, std::ostringstream& out) {
         if (i) out << ",";
         out << "{\"op\":" << quote(irOpName(in.op))
             << ",\"text\":" << quote(irToString(in))
-            << ",\"rule\":" << in.rule;
+            << ",\"rule\":" << in.rule
+            << ",\"numeric\":" << (in.numeric ? "true" : "false");
         switch (in.op) {
             case IrOp::Binary:
                 out << ",\"dest\":" << quote(in.dest) << ",\"oper\":" << quote(in.oper)
                     << ",\"a\":" << value(in.a) << ",\"b\":" << value(in.b);
                 break;
             case IrOp::Not:
+            case IrOp::Neg:
             case IrOp::Copy:
                 out << ",\"dest\":" << quote(in.dest) << ",\"a\":" << value(in.a);
                 break;
@@ -144,6 +146,24 @@ std::string toJson(const CompileResult& r) {
             << ",\"count\":" << p.count << "}";
     }
     out << "]}";
+
+    out << ",\"cfg\":[";
+    for (size_t i = 0; i < r.cfg.blocks.size(); ++i) {
+        const BasicBlock& b = r.cfg.blocks[i];
+        auto list = [&](const std::set<std::string>& s) {
+            std::string t = "[";
+            bool first = true;
+            for (const std::string& x : s) { t += (first ? "" : ",") + quote(x); first = false; }
+            return t + "]";
+        };
+        out << (i ? "," : "") << "{\"id\":" << b.id << ",\"first\":" << b.first << ",\"last\":" << b.last
+            << ",\"exits\":" << (b.exits ? "true" : "false") << ",\"succ\":[";
+        for (size_t k = 0; k < b.succ.size(); ++k) out << (k ? "," : "") << b.succ[k];
+        out << "],\"pred\":[";
+        for (size_t k = 0; k < b.pred.size(); ++k) out << (k ? "," : "") << b.pred[k];
+        out << "],\"liveIn\":" << list(b.liveIn) << ",\"liveOut\":" << list(b.liveOut) << "}";
+    }
+    out << "]";
 
     out << ",\"cCode\":" << quote(r.cCode);
 

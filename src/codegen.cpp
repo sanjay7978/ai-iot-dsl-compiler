@@ -52,9 +52,11 @@ std::string CodeGenerator::value(const IrValue& v) const {
     return "";
 }
 
-void CodeGenerator::emitRange(const std::vector<IrInstr>& code, size_t from, size_t to, int indent) {
+void CodeGenerator::emitRange(const std::vector<IrInstr>& code, size_t from, size_t to, int indent,
+                              const std::string& exitLabel) {
     for (size_t i = from; i < to; ++i) {
         const IrInstr& in = code[i];
+        const std::string type = in.numeric ? "double " : "bool ";
         switch (in.op) {
             case IrOp::Rule:
                 out_ += "\n" + line(indent) + "/* Rule " + std::to_string(in.rule) + " (source line " +
@@ -63,15 +65,17 @@ void CodeGenerator::emitRange(const std::vector<IrInstr>& code, size_t from, siz
 
             case IrOp::Binary: {
                 std::string op = in.oper == "AND" ? "&&" : in.oper == "OR" ? "||" : in.oper;
-                out_ += line(indent) + "bool " + in.dest + " = " + value(in.a) + " " + op + " " +
-                        value(in.b) + ";\n";
+                out_ += line(indent) + type + in.dest + " = " + value(in.a) + " " + op + " " + value(in.b) + ";\n";
                 break;
             }
             case IrOp::Not:
                 out_ += line(indent) + "bool " + in.dest + " = !" + value(in.a) + ";\n";
                 break;
+            case IrOp::Neg:
+                out_ += line(indent) + "double " + in.dest + " = -" + value(in.a) + ";\n";
+                break;
             case IrOp::Copy:
-                out_ += line(indent) + "bool " + in.dest + " = " + value(in.a) + ";\n";
+                out_ += line(indent) + type + in.dest + " = " + value(in.a) + ";\n";
                 break;
 
             case IrOp::Call: {
@@ -82,34 +86,44 @@ void CodeGenerator::emitRange(const std::vector<IrInstr>& code, size_t from, siz
             }
 
             case IrOp::IfFalse: {
-                size_t elseAt = findLabel(code, i + 1, to, in.label);
-                if (elseAt == to) {   // not our shape: fall back to a goto
-                    out_ += line(indent) + "if (!" + value(in.a) + ") goto " + in.label + ";\n";
+                std::string cond = value(in.a);
+                // IF_FALSE c GOTO <end of this range>:   if (c) { rest of range }
+                if (in.label == exitLabel) {
+                    out_ += line(indent) + "if (" + cond + ") {\n";
+                    emitRange(code, i + 1, to, indent + 1, exitLabel);
+                    out_ += line(indent) + "}\n";
+                    i = to;
                     break;
                 }
-                // Is there an ELSE part?  ... GOTO L2 / L1: ... / L2:
-                size_t endAt = to;
-                if (elseAt > i + 1 && code[elseAt - 1].op == IrOp::Goto)
-                    endAt = findLabel(code, elseAt + 1, to, code[elseAt - 1].label);
-
-                if (endAt != to) {
-                    out_ += line(indent) + "if (" + value(in.a) + ") {\n";
-                    emitRange(code, i + 1, elseAt - 1, indent + 1);
-                    out_ += line(indent) + "} else {\n";
-                    emitRange(code, elseAt + 1, endAt, indent + 1);
-                    out_ += line(indent) + "}\n";
-                    i = endAt;
-                } else {
-                    out_ += line(indent) + "if (" + value(in.a) + ") {\n";
-                    emitRange(code, i + 1, elseAt, indent + 1);
-                    out_ += line(indent) + "}\n";
-                    i = elseAt;
+                size_t elseAt = findLabel(code, i + 1, to, in.label);
+                if (elseAt == to) {   // not a shape we know: fall back to a goto
+                    out_ += line(indent) + "if (!" + cond + ") goto " + in.label + ";\n";
+                    break;
                 }
+                // Then-part ends with GOTO E?  Then the code after L1 is the ELSE part,
+                // running up to label E (or to the end of this range if E is our exit).
+                if (elseAt > i + 1 && code[elseAt - 1].op == IrOp::Goto) {
+                    const std::string& e = code[elseAt - 1].label;
+                    size_t endAt = e == exitLabel ? to : findLabel(code, elseAt + 1, to, e);
+                    if (endAt != to || e == exitLabel) {
+                        out_ += line(indent) + "if (" + cond + ") {\n";
+                        emitRange(code, i + 1, elseAt - 1, indent + 1, e);
+                        out_ += line(indent) + "} else {\n";
+                        emitRange(code, elseAt + 1, endAt, indent + 1, e);
+                        out_ += line(indent) + "}\n";
+                        i = endAt;   // skips label E
+                        break;
+                    }
+                }
+                out_ += line(indent) + "if (" + cond + ") {\n";
+                emitRange(code, i + 1, elseAt, indent + 1, in.label);
+                out_ += line(indent) + "}\n";
+                i = elseAt;   // skips label L1
                 break;
             }
 
-            // Only reached if the IR is not in the expected shape.
             case IrOp::Goto:
+                if (in.label == exitLabel && i + 1 == to) break;   // leaving the range: nothing to do
                 out_ += line(indent) + "goto " + in.label + ";\n";
                 break;
             case IrOp::Label:
@@ -150,8 +164,11 @@ std::string CodeGenerator::generate(const std::vector<IrInstr>& code, const Symb
     std::set<std::string> usedSensors;
     for (const IrInstr& in : code) {
         auto note = [&](const IrValue& v) { if (v.kind == IrValue::Kind::Sensor) usedSensors.insert(v.text); };
-        note(in.a);
-        note(in.b);
+        if (in.op == IrOp::Binary || in.op == IrOp::Not || in.op == IrOp::Neg || in.op == IrOp::Copy ||
+            in.op == IrOp::IfFalse) {
+            note(in.a);
+            note(in.b);
+        }
         for (const IrValue& v : in.args) note(v);
     }
 
@@ -168,7 +185,7 @@ std::string CodeGenerator::generate(const std::vector<IrInstr>& code, const Symb
     }
     if (!anySensor) out_ += "    /* (no sensors are needed) */\n";
 
-    emitRange(code, 0, code.size(), 1);
+    emitRange(code, 0, code.size(), 1, "");
     out_ += "}\n";
     return out_;
 }

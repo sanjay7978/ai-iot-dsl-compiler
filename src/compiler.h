@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ast.h"
+#include "cfg.h"
 #include "ir.h"
 #include "optimizer.h"
 #include "semantic.h"
@@ -26,6 +27,7 @@ struct CompileResult {
     std::vector<IrInstr> ir;
     std::vector<IrInstr> optimizedIr;
     OptReport optimization;
+    Cfg cfg;                               // basic blocks of the optimized code, with liveness
     std::string cCode;
 
     std::vector<Diagnostic> diagnostics;   // errors and warnings from every phase
