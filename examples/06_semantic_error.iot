@@ -1,0 +1,14 @@
+# Semantic errors: the program is grammatically correct,
+# but it uses names and types incorrectly.
+SENSOR temperature : NUMBER
+SENSOR door : STATE
+DEVICE light
+
+IF temperature > 30 AND door == OPEN
+THEN turn_on(fan)
+
+IF door > 5 OR temprature == 20
+THEN set_level(light)
+
+IF temperature == OPEN
+THEN start(light)

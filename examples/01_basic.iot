@@ -1,2 +1,7 @@
+# The example from the problem statement
+SENSOR temperature : NUMBER
+SENSOR door : STATE
+DEVICE fan
+
 IF temperature > 30 AND door == OPEN
 THEN turn_on(fan)

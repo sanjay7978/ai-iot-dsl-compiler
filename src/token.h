@@ -35,13 +35,14 @@ struct Pos {
     int col = 0;
 };
 
-// One error message produced by any compiler phase.
+// One error or warning produced by any compiler phase.
 struct Diagnostic {
-    std::string phase;    // "lexical" or "syntax"
+    std::string phase;    // "lexical", "syntax" or "semantic"
     int line;
     int col;
     int length;
     std::string message;
+    std::string severity = "error";   // "error" or "warning"
 };
 
 // Name printed in the token table, e.g. "IF", "IDENTIFIER", "GT".

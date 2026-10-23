@@ -1,0 +1,18 @@
+# Optimization demo: constant conditions, repeated comparisons
+# and NOT NOT are removed or simplified by the optimizer.
+SENSOR temperature : NUMBER
+SENSOR door : STATE
+DEVICE fan, heater, light
+
+# Always-true part: 10 > 5 is folded, then "x AND true" -> x
+IF temperature > 30 AND 10 > 5
+THEN turn_on(fan)
+
+# Same comparison as rule 1 (common sub-expression) and NOT NOT
+IF NOT NOT (temperature > 30) OR door == OPEN
+THEN turn_on(light)
+
+# Constant false condition: the whole THEN part is dead code
+IF 2 > 3
+THEN turn_on(heater)
+ELSE turn_off(heater)

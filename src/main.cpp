@@ -1,15 +1,20 @@
-// main.cpp — command-line driver for the IoT DSL compiler front end.
+// main.cpp — command-line driver for the IoT DSL compiler (iotc).
 //
-// Usage: iotc [file.iot] [--tokens] [--ast] [--dot] [--json]
+// Usage: iotc [file.iot] [options]
 //   No file      read the program from standard input
-//   --tokens     print only the token table
-//   --ast        print only the abstract syntax tree
-//   --dot        print the AST in Graphviz DOT format
-//   --json       print everything as JSON (used by the web interface)
-// Exit status is 0 on success and 1 if any lexical or syntax error was found.
+//   --tokens     Phase 1: token table
+//   --ast        Phases 2-3: abstract syntax tree
+//   --symbols    Phase 4: symbol table
+//   --ir         Phase 5: intermediate code (three-address code)
+//   --opt        Phase 6: optimized intermediate code and report
+//   --c          Phase 7: generated C code only (handy for redirecting)
+//   -o FILE      write the generated C code to FILE
+//   --dot        AST in Graphviz DOT format
+//   --json       everything as JSON (used by the web interface)
+// With no section options, every phase is printed.
+// Exit status: 0 = success (warnings allowed), 1 = errors, 2 = usage error.
 
 #include <cctype>
-#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -18,22 +23,21 @@
 #include <string>
 
 #include "ast.h"
+#include "compiler.h"
 #include "json.h"
-#include "lexer.h"
-#include "parser.h"
 
 namespace {
 
 struct Options {
     std::string file;
-    bool tokens = false;
-    bool ast = false;
-    bool dot = false;
-    bool json = false;
+    std::string outFile;
+    bool tokens = false, ast = false, symbols = false, ir = false, opt = false;
+    bool c = false, dot = false, json = false;
 };
 
 void usage() {
-    std::cerr << "usage: iotc [file.iot] [--tokens] [--ast] [--dot] [--json]\n";
+    std::cerr << "usage: iotc [file.iot] [--tokens] [--ast] [--symbols] [--ir] [--opt] [--c] "
+                 "[-o out.c] [--dot] [--json]\n";
 }
 
 bool parseArgs(int argc, char** argv, Options& opt) {
@@ -41,14 +45,21 @@ bool parseArgs(int argc, char** argv, Options& opt) {
         std::string a = argv[i];
         if (a == "--tokens") opt.tokens = true;
         else if (a == "--ast") opt.ast = true;
+        else if (a == "--symbols") opt.symbols = true;
+        else if (a == "--ir") opt.ir = true;
+        else if (a == "--opt") opt.opt = true;
+        else if (a == "--c") opt.c = true;
         else if (a == "--dot") opt.dot = true;
         else if (a == "--json") opt.json = true;
+        else if (a == "-o") {
+            if (i + 1 >= argc) { std::cerr << "-o needs a file name\n"; return false; }
+            opt.outFile = argv[++i];
+        }
         else if (a == "-h" || a == "--help") { usage(); std::exit(0); }
         else if (!a.empty() && a[0] == '-') { std::cerr << "unknown option: " << a << "\n"; return false; }
         else if (opt.file.empty()) opt.file = a;
         else { std::cerr << "only one input file is allowed\n"; return false; }
     }
-    if (!opt.tokens && !opt.ast) opt.tokens = opt.ast = true;
     return true;
 }
 
@@ -61,8 +72,10 @@ std::string capitalize(std::string s) {
     return s;
 }
 
+void heading(const std::string& title) { std::cout << "=== " << title << " ===\n\n"; }
+
 void printTokens(const std::vector<Token>& tokens) {
-    std::cout << "=== PHASE 1: LEXICAL ANALYSIS ===\n\n";
+    heading("PHASE 1: LEXICAL ANALYSIS");
     std::cout << std::left << std::setw(5) << "#" << std::setw(10) << "LINE:COL"
               << std::setw(14) << "TOKEN" << "LEXEME\n";
     std::cout << std::string(44, '-') << "\n";
@@ -76,13 +89,45 @@ void printTokens(const std::vector<Token>& tokens) {
     std::cout << "\n";
 }
 
+void printSymbols(const SymbolTable& table) {
+    heading("PHASE 4: SEMANTIC ANALYSIS (SYMBOL TABLE)");
+    std::cout << std::left << std::setw(18) << "NAME" << std::setw(9) << "KIND" << std::setw(9) << "TYPE"
+              << std::setw(10) << "DECLARED" << "USES\n";
+    std::cout << std::string(50, '-') << "\n";
+    for (const Symbol& s : table.all()) {
+        std::string at = std::to_string(s.declared.line) + ":" + std::to_string(s.declared.col);
+        std::cout << std::left << std::setw(18) << s.name << std::setw(9) << symbolKindName(s.kind)
+                  << std::setw(9) << valueTypeName(s.type) << std::setw(10) << at << s.uses << "\n";
+    }
+    if (table.all().empty()) std::cout << "(no declarations)\n";
+    std::cout << "\n";
+}
+
+void printIr(const std::vector<IrInstr>& code) {
+    bool first = true;
+    for (const IrInstr& in : code) {
+        if (in.op == IrOp::Rule) { std::cout << (first ? "" : "\n") << irToString(in) << "\n"; first = false; }
+        else if (in.op == IrOp::Label) std::cout << irToString(in) << "\n";
+        else std::cout << "    " << irToString(in) << "\n";
+    }
+    std::cout << "\n";
+}
+
+void printOptimization(const CompileResult& r) {
+    heading("PHASE 6: OPTIMIZATION");
+    printIr(r.optimizedIr);
+    std::cout << "Instructions: " << r.optimization.before << " -> " << r.optimization.after << "\n";
+    for (const OptPass& p : r.optimization.passes)
+        if (p.count > 0) std::cout << "  " << std::left << std::setw(36) << p.name << p.count << "\n";
+    std::cout << "\n";
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     Options opt;
     if (!parseArgs(argc, argv, opt)) { usage(); return 2; }
 
-    // Read the source program.
     std::stringstream buffer;
     if (opt.file.empty()) {
         buffer << std::cin.rdbuf();
@@ -91,58 +136,71 @@ int main(int argc, char** argv) {
         if (!in) { std::cerr << "iotc: cannot open '" << opt.file << "'\n"; return 2; }
         buffer << in.rdbuf();
     }
-    std::string source = buffer.str();
 
-    auto t0 = std::chrono::steady_clock::now();
-
-    // Phase 1: lexical analysis
-    Lexer lexer(source);
-    std::vector<Token> tokens = lexer.tokenize();
-
-    // Phase 2: syntax analysis
-    Parser parser(tokens);
-    std::unique_ptr<Program> program = parser.parse();
-
-    auto t1 = std::chrono::steady_clock::now();
-
-    std::vector<Diagnostic> errors = lexer.errors();
-    errors.insert(errors.end(), parser.errors().begin(), parser.errors().end());
-
-    DisplayNode tree = program->display();
-
-    CompileStats stats;
-    stats.tokens = static_cast<int>(tokens.size()) - 1;   // exclude EOF
-    stats.rules = parser.ruleCount();
-    stats.declarations = parser.declarationCount();
-    stats.timeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    std::string name = opt.file.empty() ? "<stdin>" : opt.file;
+    CompileResult r = compile(buffer.str(), name);
+    int status = r.errorCount() == 0 ? 0 : 1;
 
     if (opt.json) {
-        std::cout << toJson(tokens, &tree, errors, stats) << "\n";
-        return errors.empty() ? 0 : 1;
+        std::cout << toJson(r) << "\n";
+        return status;
     }
     if (opt.dot) {
-        printDot(tree, std::cout);
-        return errors.empty() ? 0 : 1;
+        printDot(r.program->display(), std::cout);
+        return status;
     }
 
-    if (opt.tokens) printTokens(tokens);
-    if (opt.ast) {
-        std::cout << "=== PHASE 2: SYNTAX ANALYSIS (ABSTRACT SYNTAX TREE) ===\n\n";
-        printTree(tree, std::cout);
+    auto printDiagnostics = [&](std::ostream& os) {
+        for (const Diagnostic& d : r.diagnostics)
+            os << capitalize(d.phase) << " " << (d.severity == "error" ? "Error" : "Warning")
+               << " [" << d.line << ":" << d.col << "]: " << d.message << "\n";
+    };
+
+    if (!opt.outFile.empty()) {
+        if (r.generatedCode()) {
+            std::ofstream out(opt.outFile);
+            if (!out) { std::cerr << "iotc: cannot write '" << opt.outFile << "'\n"; return 2; }
+            out << r.cCode;
+        }
+    }
+
+    // --c: raw C on stdout (diagnostics on stderr) so it can be redirected.
+    if (opt.c) {
+        printDiagnostics(std::cerr);
+        if (r.generatedCode()) std::cout << r.cCode;
+        return status;
+    }
+
+    bool any = opt.tokens || opt.ast || opt.symbols || opt.ir || opt.opt;
+    bool all = !any && opt.outFile.empty();
+
+    if (all || opt.tokens) printTokens(r.tokens);
+    if (all || opt.ast) {
+        heading("PHASES 2-3: SYNTAX ANALYSIS (ABSTRACT SYNTAX TREE)");
+        printTree(r.program->display(), std::cout);
+        std::cout << "\n";
+    }
+    if ((all || opt.symbols) && r.phases[3].status != "skipped") printSymbols(r.symbols);
+    if ((all || opt.ir) && r.phases[4].status == "ok") {
+        heading("PHASE 5: INTERMEDIATE CODE (THREE-ADDRESS CODE)");
+        printIr(r.ir);
+    }
+    if ((all || opt.opt) && r.phases[5].status == "ok") printOptimization(r);
+    if (all && r.generatedCode()) {
+        heading("PHASE 7: GENERATED C CODE");
+        std::cout << r.cCode << "\n";
+    }
+
+    if (!r.diagnostics.empty()) {
+        heading("PROBLEMS");
+        printDiagnostics(std::cout);
         std::cout << "\n";
     }
 
-    if (!errors.empty()) {
-        std::cout << "=== ERRORS ===\n\n";
-        for (const Diagnostic& d : errors)
-            std::cout << capitalize(d.phase) << " Error [" << d.line << ":" << d.col << "]: "
-                      << d.message << "\n";
-        std::cout << "\n";
-    }
-
-    std::cout << (errors.empty() ? "Front end succeeded: " : "Front end failed: ")
-              << plural(stats.tokens, "token") << ", " << plural(stats.declarations, "declaration")
-              << ", " << plural(stats.rules, "rule") << ", "
-              << plural(static_cast<int>(errors.size()), "error") << ".\n";
-    return errors.empty() ? 0 : 1;
+    std::cout << (status == 0 ? "Compilation succeeded: " : "Compilation failed: ")
+              << plural(static_cast<int>(r.tokens.size()) - 1, "token") << ", "
+              << plural(r.declarations, "declaration") << ", " << plural(r.rules, "rule") << ", "
+              << plural(r.errorCount(), "error") << ", " << plural(r.warningCount(), "warning") << ".\n";
+    if (!opt.outFile.empty() && r.generatedCode()) std::cout << "C code written to " << opt.outFile << "\n";
+    return status;
 }

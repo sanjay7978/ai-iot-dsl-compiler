@@ -1,12 +1,13 @@
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -pedantic -O2
 
-SRC   := src/lexer.cpp src/parser.cpp src/ast.cpp src/json.cpp src/main.cpp
+SRC   := src/lexer.cpp src/parser.cpp src/ast.cpp src/semantic.cpp src/ir.cpp \
+         src/optimizer.cpp src/codegen.cpp src/compiler.cpp src/json.cpp src/main.cpp
 OBJ   := $(SRC:src/%.cpp=build/%.o)
 HDRS  := $(wildcard src/*.h)
 BIN   := iotc
 
-.PHONY: all run test clean
+.PHONY: all run test demo clean
 
 all: $(BIN)
 
@@ -25,6 +26,17 @@ run: $(BIN)
 
 test: $(BIN)
 	sh tests/run_tests.sh
+	python3 -m unittest discover -s tests -q
+
+# Compile a DSL program to C, build it with the runtime and run it, e.g.
+#   make demo FILE=examples/02_smart_home.iot ARGS="temperature=32 door=OPEN motion=OFF humidity=30"
+FILE ?= examples/01_basic.iot
+ARGS ?= temperature=32 door=OPEN
+CC   ?= cc
+demo: $(BIN) | build
+	./$(BIN) $(FILE) -o build/program.c
+	$(CC) -std=c99 -Wall -Wextra -Werror -Iruntime build/program.c runtime/iot_runtime.c -o build/program
+	./build/program $(ARGS)
 
 clean:
 	rm -rf build $(BIN)
