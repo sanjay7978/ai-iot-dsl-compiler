@@ -31,11 +31,15 @@ private:
     std::unique_ptr<Statement> parseSensorDecl();
     std::unique_ptr<Statement> parseDeviceDecl();
     std::unique_ptr<Statement> parseRule();
-    std::unique_ptr<Condition> parseCondition();   // OR level
-    std::unique_ptr<Condition> parseAnd();         // AND level
-    std::unique_ptr<Condition> parseNot();         // NOT level
-    std::unique_ptr<Condition> parsePrimary();     // ( condition ) | comparison
-    Operand parseOperand(const std::string& what);
+    std::unique_ptr<Expr> parseExpr();         // OR   (lowest precedence)
+    std::unique_ptr<Expr> parseAnd();          // AND
+    std::unique_ptr<Expr> parseNot();          // NOT
+    std::unique_ptr<Expr> parseRelational();   // > < >= <= == !=
+    std::unique_ptr<Expr> parseArith();        // + -
+    std::unique_ptr<Expr> parseTerm();         // * /
+    std::unique_ptr<Expr> parseUnary();        // unary -
+    std::unique_ptr<Expr> parsePrimary();      // literal | name | ( expr )   (highest)
+    std::unique_ptr<Expr> binary(const std::string& op, std::unique_ptr<Expr> l, std::unique_ptr<Expr> r);
     Action parseAction();
     std::vector<Action> parseActionList(const std::string& after);
 

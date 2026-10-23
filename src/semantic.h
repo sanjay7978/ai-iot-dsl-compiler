@@ -13,7 +13,7 @@
 #include "token.h"
 
 enum class SymbolKind { Sensor, Device };
-enum class ValueType { Number, State, None };   // None for devices
+enum class ValueType { Number, State, Bool, None };   // None for devices and errors
 
 struct Symbol {
     std::string name;
@@ -60,10 +60,9 @@ public:
 private:
     void declare(const Statement& s);
     void checkRule(const Rule& rule);
-    void checkCondition(const Condition& c);
-    void checkComparison(const Comparison& c);
     void checkAction(const Action& a);
-    ValueType operandType(const Operand& op, bool& ok);   // for condition operands
+    ValueType typeOf(const Expr& e, bool& ok);   // type checking of expressions
+    std::string describe(const Expr& e, ValueType t) const;
 
     void error(const Node& at, const std::string& msg);
     void warning(const Node& at, const std::string& msg);

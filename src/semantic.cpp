@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "rule_analysis.h"
+
 // ---------- Symbol table ----------------------------------------------------
 
 bool SymbolTable::add(const Symbol& s) {
@@ -32,6 +34,7 @@ const char* valueTypeName(ValueType t) {
     switch (t) {
         case ValueType::Number: return "NUMBER";
         case ValueType::State:  return "STATE";
+        case ValueType::Bool:   return "BOOL";
         case ValueType::None:   return "-";
     }
     return "-";
@@ -122,6 +125,14 @@ std::vector<Diagnostic> SemanticAnalyzer::analyze(const Program& program, Symbol
     for (const auto& s : program.statements)
         if (const Rule* r = dynamic_cast<const Rule*>(s.get())) checkRule(*r);
 
+    // Pass 3: logical analysis of the conditions (only for well-typed programs).
+    bool typeErrors = std::any_of(diags_.begin(), diags_.end(),
+                                  [](const Diagnostic& d) { return d.severity == "error"; });
+    if (!typeErrors) {
+        std::vector<Diagnostic> more = analyzeRules(program, table);
+        diags_.insert(diags_.end(), more.begin(), more.end());
+    }
+
     // Unused declarations are allowed, but probably a mistake.
     for (const Symbol& sym : table.all()) {
         if (sym.uses > 0) continue;
@@ -159,76 +170,164 @@ void SemanticAnalyzer::declare(const Statement& s) {
 }
 
 void SemanticAnalyzer::checkRule(const Rule& rule) {
-    checkCondition(*rule.condition);
-    for (const Action& a : rule.thenActions) checkAction(a);
+    for (const Branch& b : rule.branches) {
+        bool ok = true;
+        ValueType t = typeOf(*b.condition, ok);
+        if (ok && t != ValueType::Bool)
+            error(*b.condition, "the condition must be true or false, but it is " + describe(*b.condition, t) +
+                                " (compare it with something, e.g. using > or ==)");
+        for (const Action& a : b.actions) checkAction(a);
+    }
     for (const Action& a : rule.elseActions) checkAction(a);
 }
 
-void SemanticAnalyzer::checkCondition(const Condition& c) {
-    if (const LogicalCond* l = dynamic_cast<const LogicalCond*>(&c)) {
-        checkCondition(*l->left);
-        checkCondition(*l->right);
-    } else if (const NotCond* n = dynamic_cast<const NotCond*>(&c)) {
-        checkCondition(*n->operand);
-    } else if (const Comparison* cmp = dynamic_cast<const Comparison*>(&c)) {
-        checkComparison(*cmp);
+namespace {
+
+bool usesSensor(const Expr& e) {
+    if (const Operand* o = dynamic_cast<const Operand*>(&e)) return o->kind == OperandKind::Identifier;
+    if (const UnaryExpr* u = dynamic_cast<const UnaryExpr*>(&e)) return usesSensor(*u->operand);
+    const BinaryExpr& b = dynamic_cast<const BinaryExpr&>(e);
+    return usesSensor(*b.left) || usesSensor(*b.right);
+}
+
+void collectNames(const Expr& e, std::vector<const Operand*>& out) {
+    if (const Operand* o = dynamic_cast<const Operand*>(&e)) {
+        if (o->kind == OperandKind::Identifier) out.push_back(o);
+    } else if (const UnaryExpr* u = dynamic_cast<const UnaryExpr*>(&e)) {
+        collectNames(*u->operand, out);
+    } else {
+        const BinaryExpr& b = dynamic_cast<const BinaryExpr&>(e);
+        collectNames(*b.left, out);
+        collectNames(*b.right, out);
     }
 }
 
-// Type of one side of a comparison. Sets ok=false (after reporting) on error.
-ValueType SemanticAnalyzer::operandType(const Operand& op, bool& ok) {
-    switch (op.kind) {
-        case OperandKind::Number: return ValueType::Number;
-        case OperandKind::State:  return ValueType::State;
-        case OperandKind::Identifier: break;
+std::string typeWord(ValueType t) {
+    switch (t) {
+        case ValueType::Number: return "NUMBER";
+        case ValueType::State:  return "STATE";
+        case ValueType::Bool:   return "true/false";
+        case ValueType::None:   return "unknown";
     }
-    Symbol* sym = table_->find(op.text);
-    if (!sym) {
-        error(op, "'" + op.text + "' is not a declared sensor" + suggest(op.text, SymbolKind::Sensor));
-        ok = false;
-        return ValueType::None;
-    }
-    sym->uses++;
-    if (sym->kind == SymbolKind::Device) {
-        error(op, "'" + op.text + "' is a device, not a sensor; conditions can only test sensors");
-        ok = false;
-        return ValueType::None;
-    }
-    return sym->type;
+    return "unknown";
 }
 
-void SemanticAnalyzer::checkComparison(const Comparison& c) {
-    bool ok = true;
-    ValueType lt = operandType(c.lhs, ok);
-    ValueType rt = operandType(c.rhs, ok);
-    if (!ok) return;
+}  // namespace
 
-    auto describe = [&](const Operand& op, ValueType t) {
-        if (op.kind == OperandKind::Identifier)
-            return std::string(valueTypeName(t)) + " sensor '" + op.text + "'";
-        return std::string(t == ValueType::Number ? "number " : "state ") + op.text;
-    };
+// Human-readable description used in type errors, e.g. "STATE sensor 'door'", "number 5".
+std::string SemanticAnalyzer::describe(const Expr& e, ValueType t) const {
+    if (const Operand* o = dynamic_cast<const Operand*>(&e)) {
+        if (o->kind == OperandKind::Identifier) return std::string(valueTypeName(t)) + " sensor '" + o->text + "'";
+        return std::string(o->kind == OperandKind::Number ? "number " : "state ") + o->text;
+    }
+    if (t == ValueType::Bool) return "a true/false condition";
+    return "a " + typeWord(t) + " expression";
+}
 
+// Computes the type of an expression, reporting errors. ok=false after an error.
+ValueType SemanticAnalyzer::typeOf(const Expr& e, bool& ok) {
+    if (const Operand* op = dynamic_cast<const Operand*>(&e)) {
+        switch (op->kind) {
+            case OperandKind::Number: return ValueType::Number;
+            case OperandKind::State:  return ValueType::State;
+            case OperandKind::Identifier: break;
+        }
+        Symbol* sym = table_->find(op->text);
+        if (!sym) {
+            error(*op, "'" + op->text + "' is not a declared sensor" + suggest(op->text, SymbolKind::Sensor));
+            ok = false;
+            return ValueType::None;
+        }
+        sym->uses++;
+        if (sym->kind == SymbolKind::Device) {
+            error(*op, "'" + op->text + "' is a device, not a sensor; conditions can only test sensors");
+            ok = false;
+            return ValueType::None;
+        }
+        return sym->type;
+    }
+
+    if (const UnaryExpr* u = dynamic_cast<const UnaryExpr*>(&e)) {
+        bool inner = true;
+        ValueType t = typeOf(*u->operand, inner);
+        if (!inner) { ok = false; return u->op == "NOT" ? ValueType::Bool : ValueType::Number; }
+        if (u->op == "NOT") {
+            if (t != ValueType::Bool) {
+                error(e, "NOT needs a true/false condition, but " + describe(*u->operand, t) + " is not one");
+                ok = false;
+            }
+            return ValueType::Bool;
+        }
+        if (t != ValueType::Number) {
+            error(e, "'-' needs a number, but " + describe(*u->operand, t) + " is not a number");
+            ok = false;
+        }
+        return ValueType::Number;
+    }
+
+    const BinaryExpr& b = dynamic_cast<const BinaryExpr&>(e);
+    bool lok = true, rok = true;
+    ValueType lt = typeOf(*b.left, lok);
+    ValueType rt = typeOf(*b.right, rok);
+    if (!lok || !rok) {
+        ok = false;
+        return isArithmeticOp(b.op) ? ValueType::Number : ValueType::Bool;
+    }
+
+    if (isLogicalOp(b.op)) {
+        for (const Expr* side : {b.left.get(), b.right.get()}) {
+            ValueType st = side == b.left.get() ? lt : rt;
+            if (st != ValueType::Bool) {
+                error(*side, b.op + " needs true/false conditions on both sides, but " + describe(*side, st) +
+                             " is not one");
+                ok = false;
+            }
+        }
+        return ValueType::Bool;
+    }
+
+    if (isArithmeticOp(b.op)) {
+        for (const Expr* side : {b.left.get(), b.right.get()}) {
+            ValueType st = side == b.left.get() ? lt : rt;
+            if (st != ValueType::Number) {
+                error(*side, "arithmetic '" + b.op + "' needs numbers, but " + describe(*side, st) +
+                             " is not a number");
+                ok = false;
+            }
+        }
+        if (b.op == "/") {
+            const Operand* d = dynamic_cast<const Operand*>(b.right.get());
+            if (d && d->kind == OperandKind::Number && std::strtod(d->text.c_str(), nullptr) == 0)
+                warning(e, "division by zero");
+        }
+        return ValueType::Number;
+    }
+
+    // Relational operator
     if (lt != rt) {
-        error(c, "type mismatch: cannot compare " + describe(c.lhs, lt) + " with " + describe(c.rhs, rt));
-        return;
+        error(e, "type mismatch: cannot compare " + describe(*b.left, lt) + " with " + describe(*b.right, rt));
+        ok = false;
+    } else if (lt == ValueType::Bool) {
+        error(e, "cannot compare two true/false conditions with '" + b.op + "'; combine them with AND, OR, NOT");
+        ok = false;
+    } else if (lt == ValueType::State && isRelational(b.op)) {
+        error(e, "operator '" + b.op + "' cannot be used on STATE values; use == or !=");
+        ok = false;
+    } else if (!usesSensor(e)) {
+        warning(e, "condition compares two constants, so it is always true or always false");
     }
-    if (lt == ValueType::State && isRelational(c.op)) {
-        error(c, "operator '" + c.op + "' cannot be used on STATE values; use == or !=");
-        return;
-    }
-    if (c.lhs.kind != OperandKind::Identifier && c.rhs.kind != OperandKind::Identifier) {
-        warning(c, "condition compares two constants, so it is always true or always false");
-    }
+    return ValueType::Bool;
 }
 
 void SemanticAnalyzer::checkAction(const Action& a) {
-    // Count uses first, so a wrong call doesn't also cause "never used" warnings.
-    for (const Operand& arg : a.args)
-        if (arg.kind == OperandKind::Identifier)
-            if (Symbol* sym = table_->find(arg.text)) sym->uses++;
-
     const ActionSignature* sig = findAction(a.name);
+    if (!sig || a.args.size() != sig->params.size()) {
+        // Count uses anyway, so a wrong call doesn't also cause "never used" warnings.
+        std::vector<const Operand*> names;
+        for (const auto& arg : a.args) collectNames(*arg, names);
+        for (const Operand* n : names)
+            if (Symbol* sym = table_->find(n->text)) sym->uses++;
+    }
     if (!sig) {
         std::string list;
         for (const ActionSignature& s : builtinActions()) list += (list.empty() ? "" : ", ") + s.name;
@@ -243,41 +342,45 @@ void SemanticAnalyzer::checkAction(const Action& a) {
     }
 
     for (size_t i = 0; i < a.args.size(); ++i) {
-        const Operand& arg = a.args[i];
+        const Expr& arg = *a.args[i];
+        const Operand* op = dynamic_cast<const Operand*>(&arg);
         std::string where = "argument " + std::to_string(i + 1) + " of '" + a.name + "'";
 
         if (sig->params[i] == ParamKind::Device) {
-            if (arg.kind != OperandKind::Identifier) {
-                error(arg, where + " must be a device name, not '" + arg.text + "'");
+            if (!op || op->kind != OperandKind::Identifier) {
+                std::vector<const Operand*> names;
+                collectNames(arg, names);
+                for (const Operand* n : names)
+                    if (Symbol* sym = table_->find(n->text)) sym->uses++;
+                error(arg, where + " must be a device name");
                 continue;
             }
-            Symbol* sym = table_->find(arg.text);
+            Symbol* sym = table_->find(op->text);
             if (!sym) {
-                error(arg, "'" + arg.text + "' is not a registered device" + suggest(arg.text, SymbolKind::Device));
+                error(arg, "'" + op->text + "' is not a registered device" + suggest(op->text, SymbolKind::Device));
                 continue;
             }
+            sym->uses++;
             if (sym->kind != SymbolKind::Device)
-                error(arg, "'" + arg.text + "' is a sensor, not a device; actions control devices");
-        } else {   // Number: a number literal or a NUMBER sensor
-            if (arg.kind == OperandKind::Number) {
-                double v = std::strtod(arg.text.c_str(), nullptr);
-                if (a.name == "set_level" && (v < 0 || v > 100))
-                    warning(arg, "level " + arg.text + " is outside the usual range 0-100");
-                continue;
-            }
-            if (arg.kind == OperandKind::State) {
-                error(arg, where + " must be a number, not the state " + arg.text);
-                continue;
-            }
-            Symbol* sym = table_->find(arg.text);
-            if (!sym) {
-                error(arg, "'" + arg.text + "' is not a declared sensor" + suggest(arg.text, SymbolKind::Sensor));
-                continue;
-            }
-            if (sym->kind != SymbolKind::Sensor || sym->type != ValueType::Number)
-                error(arg, where + " must be a number or a NUMBER sensor; '" + arg.text + "' is a " +
-                           (sym->kind == SymbolKind::Device ? std::string("device")
-                                                            : std::string("STATE sensor")));
+                error(arg, "'" + op->text + "' is a sensor, not a device; actions control devices");
+            continue;
+        }
+
+        // Number parameter: any NUMBER expression (literal, NUMBER sensor, arithmetic).
+        if (op && op->kind == OperandKind::State) {
+            error(arg, where + " must be a number, not the state " + op->text);
+            continue;
+        }
+        bool ok = true;
+        ValueType t = typeOf(arg, ok);
+        if (ok && t != ValueType::Number) {
+            error(arg, where + " must be a number, but it is " + describe(arg, t));
+            continue;
+        }
+        if (op && op->kind == OperandKind::Number) {
+            double v = std::strtod(op->text.c_str(), nullptr);
+            if (a.name == "set_level" && (v < 0 || v > 100))
+                warning(arg, "level " + op->text + " is outside the usual range 0-100");
         }
     }
 }

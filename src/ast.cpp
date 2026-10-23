@@ -20,29 +20,32 @@ DisplayNode Operand::display() const {
     return makeDisplay("ident", text);
 }
 
-DisplayNode LogicalCond::display() const {
-    DisplayNode d = makeDisplay("logic", op);
+bool isLogicalOp(const std::string& op) { return op == "AND" || op == "OR"; }
+
+bool isRelationalOp(const std::string& op) {
+    return op == ">" || op == "<" || op == ">=" || op == "<=" || op == "==" || op == "!=";
+}
+
+bool isArithmeticOp(const std::string& op) { return op == "+" || op == "-" || op == "*" || op == "/"; }
+
+DisplayNode BinaryExpr::display() const {
+    DisplayNode d = isLogicalOp(op)    ? makeDisplay("logic", op)
+                  : isRelationalOp(op) ? makeDisplay("compare", "Comparison: " + op)
+                                       : makeDisplay("arith", "Arithmetic: " + op);
     d.children.push_back(left->display());
     d.children.push_back(right->display());
     return d;
 }
 
-DisplayNode NotCond::display() const {
-    DisplayNode d = makeDisplay("logic", "NOT");
+DisplayNode UnaryExpr::display() const {
+    DisplayNode d = op == "NOT" ? makeDisplay("logic", "NOT") : makeDisplay("arith", "Negate");
     d.children.push_back(operand->display());
-    return d;
-}
-
-DisplayNode Comparison::display() const {
-    DisplayNode d = makeDisplay("compare", "Comparison: " + op);
-    d.children.push_back(lhs.display());
-    d.children.push_back(rhs.display());
     return d;
 }
 
 DisplayNode Action::display() const {
     DisplayNode d = makeDisplay("action", "Action: " + name);
-    for (const Operand& arg : args) d.children.push_back(arg.display());
+    for (const auto& arg : args) d.children.push_back(arg->display());
     return d;
 }
 
@@ -84,15 +87,32 @@ DisplayNode actionBlock(const std::string& label, const std::vector<Action>& act
 DisplayNode Rule::display() const {
     DisplayNode d = makeDisplay("rule", "Rule");
 
-    DisplayNode cond;
-    cond.kind = "block";
-    cond.label = "Condition";
-    cond.start = condition->start;
-    cond.end = condition->end;
-    cond.children.push_back(condition->display());
-    d.children.push_back(cond);
+    auto conditionBlock = [](const Expr& c) {
+        DisplayNode cond;
+        cond.kind = "block";
+        cond.label = "Condition";
+        cond.start = c.start;
+        cond.end = c.end;
+        cond.children.push_back(c.display());
+        return cond;
+    };
 
-    d.children.push_back(actionBlock("Then", thenActions));
+    for (size_t i = 0; i < branches.size(); ++i) {
+        const Branch& b = branches[i];
+        if (i == 0) {
+            d.children.push_back(conditionBlock(*b.condition));
+            d.children.push_back(actionBlock("Then", b.actions));
+        } else {
+            DisplayNode elif;
+            elif.kind = "block";
+            elif.label = "Else If";
+            elif.start = b.start;
+            elif.end = b.actions.empty() ? b.condition->end : b.actions.back().end;
+            elif.children.push_back(conditionBlock(*b.condition));
+            elif.children.push_back(actionBlock("Then", b.actions));
+            d.children.push_back(elif);
+        }
+    }
     if (!elseActions.empty()) d.children.push_back(actionBlock("Else", elseActions));
     return d;
 }

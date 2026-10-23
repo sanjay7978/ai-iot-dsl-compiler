@@ -162,6 +162,10 @@ std::vector<Token> Lexer::tokenize() {
             case ')': tokens.push_back(makeToken(TokenType::RPAREN, start, line, col)); break;
             case ',': tokens.push_back(makeToken(TokenType::COMMA, start, line, col));  break;
             case ':': tokens.push_back(makeToken(TokenType::COLON, start, line, col));  break;
+            case '+': tokens.push_back(makeToken(TokenType::PLUS, start, line, col));   break;
+            case '-': tokens.push_back(makeToken(TokenType::MINUS, start, line, col));  break;
+            case '*': tokens.push_back(makeToken(TokenType::STAR, start, line, col));   break;
+            case '/': tokens.push_back(makeToken(TokenType::SLASH, start, line, col));  break;
 
             case '>':
                 if (peek() == '=') advance();

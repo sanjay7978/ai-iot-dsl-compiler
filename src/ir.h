@@ -28,8 +28,9 @@ struct IrValue {
 };
 
 enum class IrOp {
-    Binary,    // dest = a op b      (op: > < >= <= == != AND OR)
+    Binary,    // dest = a op b      (op: > < >= <= == != AND OR + - * /)
     Not,       // dest = NOT a
+    Neg,       // dest = - a
     Copy,      // dest = a
     IfFalse,   // IF_FALSE a GOTO label
     Goto,      // GOTO label
@@ -48,6 +49,7 @@ struct IrInstr {
     std::vector<IrValue> args;   // Call
     int rule = 0;                // rule number this instruction belongs to
     int line = 0;                // Rule: source line of the rule
+    bool numeric = false;        // dest holds a number (true) or true/false (false)
 
     static IrInstr of(IrOp op) { IrInstr in; in.op = op; return in; }
 };
@@ -64,8 +66,7 @@ public:
     std::vector<IrInstr> generate(const Program& program);
 
 private:
-    IrValue genCondition(const Condition& c);
-    IrValue operandValue(const Operand& op) const;
+    IrValue genExpr(const Expr& e);
     void genActions(const std::vector<Action>& actions);
     std::string newTemp() { return "t" + std::to_string(++temps_); }
     std::string newLabel() { return "L" + std::to_string(++labels_); }

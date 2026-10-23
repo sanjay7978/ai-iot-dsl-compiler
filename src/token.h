@@ -12,8 +12,9 @@ enum class TokenType {
     // Names and literals
     IDENTIFIER, NUMBER,
 
-    // Relational operators
+    // Relational and arithmetic operators
     GT, LT, GE, LE, EQ, NE,
+    PLUS, MINUS, STAR, SLASH,
 
     // Punctuation
     LPAREN, RPAREN, COMMA, COLON,
@@ -72,6 +73,10 @@ inline const char* tokenTypeName(TokenType t) {
         case TokenType::LE:          return "LE";
         case TokenType::EQ:          return "EQ";
         case TokenType::NE:          return "NE";
+        case TokenType::PLUS:        return "PLUS";
+        case TokenType::MINUS:       return "MINUS";
+        case TokenType::STAR:        return "STAR";
+        case TokenType::SLASH:       return "SLASH";
         case TokenType::LPAREN:      return "LPAREN";
         case TokenType::RPAREN:      return "RPAREN";
         case TokenType::COMMA:       return "COMMA";
@@ -93,6 +98,7 @@ inline const char* tokenCategory(TokenType t) {
             return "number";
         case TokenType::GT: case TokenType::LT: case TokenType::GE:
         case TokenType::LE: case TokenType::EQ: case TokenType::NE:
+        case TokenType::PLUS: case TokenType::MINUS: case TokenType::STAR: case TokenType::SLASH:
             return "operator";
         case TokenType::LPAREN: case TokenType::RPAREN:
         case TokenType::COMMA: case TokenType::COLON:

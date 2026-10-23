@@ -1,0 +1,26 @@
+# Rule analysis: the compiler reasons about the conditions themselves.
+SENSOR temperature : NUMBER
+SENSOR door : STATE
+DEVICE fan, alarm, light
+
+# Impossible: no temperature is both above 30 and below 20
+IF temperature > 30 AND temperature < 20
+THEN turn_on(alarm)
+
+# Always true: every temperature is either > 25 or <= 25
+IF temperature > 25 OR temperature <= 25
+THEN turn_on(light)
+
+# The ELSE IF can never run: temperature > 40 already implies > 30
+IF temperature > 30 THEN turn_on(fan)
+ELSE IF temperature > 40 THEN turn_on(alarm)
+
+# Conflict with the rule above: at 35 degrees with the door open,
+# one rule turns the fan on and this one turns it off
+IF door == OPEN
+THEN turn_off(fan)
+
+# No conflict: these two rules control the alarm differently,
+# but their conditions can never hold at the same time
+IF temperature > 50 THEN turn_on(alarm)
+IF temperature < 0 THEN turn_off(alarm)

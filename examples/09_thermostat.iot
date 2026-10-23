@@ -1,0 +1,23 @@
+# Thermostat: ELSE IF chains and arithmetic in conditions and actions
+SENSOR temperature : NUMBER
+SENSOR outside : NUMBER
+SENSOR window : STATE
+DEVICE heater, cooler, vent
+
+# Pick exactly one mode
+IF window == OPEN
+THEN turn_off(heater)
+     turn_off(cooler)
+ELSE IF temperature < 18
+THEN set_level(heater, (22 - temperature) * 10)
+     turn_off(cooler)
+ELSE IF temperature > 26
+THEN turn_on(cooler)
+     turn_off(heater)
+ELSE turn_off(heater)
+     turn_off(cooler)
+
+# Ventilate when it is much warmer inside than outside
+IF temperature - outside > 5 AND window != OPEN
+THEN turn_on(vent)
+ELSE turn_off(vent)

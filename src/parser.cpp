@@ -155,16 +155,32 @@ std::unique_ptr<Statement> Parser::parseDeviceDecl() {
     return decl;
 }
 
-// rule -> IF condition THEN action { action } [ ELSE action { action } ]
+// rule -> IF expr THEN actions { ELSE IF expr THEN actions } [ ELSE actions ]
 std::unique_ptr<Statement> Parser::parseRule() {
     auto rule = std::make_unique<Rule>();
     rule->start = startOf(expect(TokenType::IF, "'IF'"));
 
-    rule->condition = parseCondition();
+    Branch first;
+    first.start = rule->start;
+    first.condition = parseExpr();
     expect(TokenType::THEN, "'THEN' after the condition");
-    rule->thenActions = parseActionList("THEN");
+    first.actions = parseActionList("THEN");
+    rule->branches.push_back(std::move(first));
 
-    if (match(TokenType::ELSE)) rule->elseActions = parseActionList("ELSE");
+    while (match(TokenType::ELSE)) {
+        Pos elsePos = startOf(previous());
+        if (match(TokenType::IF)) {                 // ELSE IF
+            Branch b;
+            b.start = elsePos;
+            b.condition = parseExpr();
+            expect(TokenType::THEN, "'THEN' after the ELSE IF condition");
+            b.actions = parseActionList("THEN");
+            rule->branches.push_back(std::move(b));
+        } else {                                    // final ELSE
+            rule->elseActions = parseActionList("ELSE");
+            break;
+        }
+    }
 
     rule->end = endOf(previous());
     ++rules_;
@@ -182,7 +198,7 @@ std::vector<Action> Parser::parseActionList(const std::string& after) {
     return actions;
 }
 
-// action -> IDENT '(' [ operand { ',' operand } ] ')'
+// action -> IDENT '(' [ expr { ',' expr } ] ')'
 Action Parser::parseAction() {
     Action action;
     const Token& name = expect(TokenType::IDENTIFIER, "an action name");
@@ -198,8 +214,8 @@ Action Parser::parseAction() {
     advance();   // '('
 
     if (!check(TokenType::RPAREN)) {
-        action.args.push_back(parseOperand("an argument"));
-        while (match(TokenType::COMMA)) action.args.push_back(parseOperand("an argument after ','"));
+        action.args.push_back(parseExpr());
+        while (match(TokenType::COMMA)) action.args.push_back(parseExpr());
     }
     if (!check(TokenType::RPAREN)) fail("',' or ')' in the argument list of '" + action.name + "'");
     advance();   // ')'
@@ -208,80 +224,107 @@ Action Parser::parseAction() {
     return action;
 }
 
-// condition -> and_expr { OR and_expr }       (lowest precedence)
-std::unique_ptr<Condition> Parser::parseCondition() {
+std::unique_ptr<Expr> Parser::binary(const std::string& op, std::unique_ptr<Expr> l,
+                                     std::unique_ptr<Expr> r) {
+    auto node = std::make_unique<BinaryExpr>();
+    node->op = op;
+    node->start = l->start;
+    node->end = r->end;
+    node->left = std::move(l);
+    node->right = std::move(r);
+    return node;
+}
+
+// expr -> and_expr { OR and_expr }            (lowest precedence)
+std::unique_ptr<Expr> Parser::parseExpr() {
     auto left = parseAnd();
-    while (match(TokenType::OR)) {
-        auto node = std::make_unique<LogicalCond>();
-        node->op = "OR";
-        node->left = std::move(left);
-        node->right = parseAnd();
-        node->start = node->left->start;
-        node->end = node->right->end;
-        left = std::move(node);
-    }
+    while (match(TokenType::OR)) left = binary("OR", std::move(left), parseAnd());
     return left;
 }
 
 // and_expr -> not_expr { AND not_expr }
-std::unique_ptr<Condition> Parser::parseAnd() {
+std::unique_ptr<Expr> Parser::parseAnd() {
     auto left = parseNot();
-    while (match(TokenType::AND)) {
-        auto node = std::make_unique<LogicalCond>();
-        node->op = "AND";
-        node->left = std::move(left);
-        node->right = parseNot();
-        node->start = node->left->start;
-        node->end = node->right->end;
-        left = std::move(node);
+    while (match(TokenType::AND)) left = binary("AND", std::move(left), parseNot());
+    return left;
+}
+
+// not_expr -> NOT not_expr | rel_expr
+std::unique_ptr<Expr> Parser::parseNot() {
+    if (match(TokenType::NOT)) {
+        auto node = std::make_unique<UnaryExpr>();
+        node->op = "NOT";
+        node->start = startOf(previous());
+        node->operand = parseNot();
+        node->end = node->operand->end;
+        return node;
+    }
+    return parseRelational();
+}
+
+// rel_expr -> arith [ relop arith ]       (comparisons do not chain)
+std::unique_ptr<Expr> Parser::parseRelational() {
+    auto left = parseArith();
+    if (isRelOp(peek().type)) {
+        std::string op = advance().lexeme;
+        return binary(op, std::move(left), parseArith());
     }
     return left;
 }
 
-// not_expr -> NOT not_expr | primary          (highest precedence)
-std::unique_ptr<Condition> Parser::parseNot() {
-    if (match(TokenType::NOT)) {
-        auto node = std::make_unique<NotCond>();
+// arith -> term { ('+' | '-') term }
+std::unique_ptr<Expr> Parser::parseArith() {
+    auto left = parseTerm();
+    while (check(TokenType::PLUS) || check(TokenType::MINUS)) {
+        std::string op = advance().lexeme;
+        left = binary(op, std::move(left), parseTerm());
+    }
+    return left;
+}
+
+// term -> unary { ('*' | '/') unary }
+std::unique_ptr<Expr> Parser::parseTerm() {
+    auto left = parseUnary();
+    while (check(TokenType::STAR) || check(TokenType::SLASH)) {
+        std::string op = advance().lexeme;
+        left = binary(op, std::move(left), parseUnary());
+    }
+    return left;
+}
+
+// unary -> '-' unary | primary
+std::unique_ptr<Expr> Parser::parseUnary() {
+    if (match(TokenType::MINUS)) {
+        auto node = std::make_unique<UnaryExpr>();
+        node->op = "-";
         node->start = startOf(previous());
-        node->operand = parseNot();
+        node->operand = parseUnary();
         node->end = node->operand->end;
         return node;
     }
     return parsePrimary();
 }
 
-// primary -> '(' condition ')' | operand relop operand
-std::unique_ptr<Condition> Parser::parsePrimary() {
+// primary -> NUMBER | IDENT | ON | OFF | OPEN | CLOSED | TRUE | FALSE | '(' expr ')'
+std::unique_ptr<Expr> Parser::parsePrimary() {
     if (match(TokenType::LPAREN)) {
         Pos open = startOf(previous());
-        auto inner = parseCondition();
+        auto inner = parseExpr();
         expect(TokenType::RPAREN, "')' to close the '(' at line " + std::to_string(open.line) +
                                   ", column " + std::to_string(open.col));
         return inner;
     }
 
-    auto cmp = std::make_unique<Comparison>();
-    cmp->lhs = parseOperand("a condition such as 'temperature > 30'");
-    if (!isRelOp(peek().type)) fail("a comparison operator (>, <, >=, <=, ==, !=)");
-    cmp->op = advance().lexeme;
-    cmp->rhs = parseOperand("a value after '" + cmp->op + "'");
-    cmp->start = cmp->lhs.start;
-    cmp->end = cmp->rhs.end;
-    return cmp;
-}
-
-// operand -> IDENT | NUMBER | ON | OFF | OPEN | CLOSED | TRUE | FALSE
-Operand Parser::parseOperand(const std::string& what) {
     const Token& t = peek();
-    Operand op;
-    if (t.type == TokenType::IDENTIFIER)  op.kind = OperandKind::Identifier;
-    else if (t.type == TokenType::NUMBER) op.kind = OperandKind::Number;
-    else if (isStateLiteral(t.type))      op.kind = OperandKind::State;
-    else fail(what);
+    auto op = std::make_unique<Operand>();
+    if (t.type == TokenType::IDENTIFIER)  op->kind = OperandKind::Identifier;
+    else if (t.type == TokenType::NUMBER) op->kind = OperandKind::Number;
+    else if (isStateLiteral(t.type))      op->kind = OperandKind::State;
+    else fail("a condition or value such as 'temperature > 30'");
 
     advance();
-    op.text = t.lexeme;
-    op.start = startOf(t);
-    op.end = endOf(t);
+    op->text = t.lexeme;
+    op->start = startOf(t);
+    op->end = endOf(t);
     return op;
 }
