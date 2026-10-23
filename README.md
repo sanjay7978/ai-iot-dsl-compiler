@@ -4,20 +4,24 @@ An AI-assisted compiler for a small rule language for IoT automation, written by
 
 ```
 SENSOR temperature : NUMBER
-SENSOR door : STATE
-DEVICE fan
+SENSOR outside : NUMBER
+SENSOR window : STATE
+DEVICE heater, vent
 
-IF temperature > 30 AND door == OPEN
-THEN turn_on(fan)
+IF window == OPEN THEN turn_off(heater)
+ELSE IF temperature < 18 THEN set_level(heater, (22 - temperature) * 10)
+ELSE turn_off(heater)
+
+IF temperature - outside > 5 THEN turn_on(vent)
 ```
 
 All seven compiler phases are implemented:
 1. lexical analysis
 2. syntax analysis
 3. abstract syntax tree
-4. semantic analysis (symbol table and type checks)
+4. semantic analysis (symbol table, type checks, and rule analysis that finds impossible conditions, unreachable branches and conflicting rules)
 5. three-address intermediate code
-6. optimization
+6. optimization on basic blocks and a control-flow graph, using liveness and available-expressions dataflow analysis
 7. C code generation
 
 A free AI assistant turns plain English into DSL and explains errors; the compiler checks everything it writes.
@@ -45,7 +49,7 @@ Then open http://127.0.0.1:8000.
   - Tokens
   - Syntax tree
   - Symbols
-  - IR (original or optimized, with the optimization report)
+  - IR (original, optimized with the optimization report, or basic blocks with liveness)
   - C code (with **Build & run**)
   - Simulator
   - Problems (with an AI **Explain** button)
@@ -66,9 +70,11 @@ With nothing set, a running Ollama is detected automatically. If none is found, 
 make
 ./iotc examples/02_smart_home.iot              # every phase
 ./iotc examples/07_optimization.iot --ir --opt # IR before and after optimization
+./iotc examples/09_thermostat.iot --cfg        # basic blocks, CFG edges, liveness
+./iotc examples/08_rule_analysis.iot           # impossible conditions, conflicts
 ./iotc examples/06_semantic_error.iot          # semantic errors
 ./iotc examples/01_basic.iot --c               # generated C only
-make demo FILE=examples/02_smart_home.iot ARGS="temperature=32 door=OPEN motion=OFF humidity=30"
+make demo FILE=examples/09_thermostat.iot ARGS="window=CLOSED temperature=15 outside=10"
 make test                                      # all tests
 ```
 
