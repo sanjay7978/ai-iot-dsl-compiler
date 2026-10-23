@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IoT DSL Compiler</title>
-  <meta name="description" content="Front end of a compiler for an IoT automation language: lexical analysis, syntax analysis and AST construction.">
+  <meta name="description" content="AI-assisted compiler for an IoT automation language: lexer, parser, semantic analysis, intermediate code, optimization and C code generation.">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try {
@@ -26,7 +26,7 @@
         </div>
         <div>
           <h1>IoT DSL Compiler</h1>
-          <p class="subtitle">Rule language for IoT automation &middot; compiler front end</p>
+          <p class="subtitle">Rule language for IoT automation &middot; AI-assisted compiler</p>
         </div>
       </div>
       <div class="top-actions">
@@ -41,33 +41,63 @@
       </div>
     </header>
 
+    <!-- AI assistance: English -> DSL -->
+    <section class="assistant" aria-label="AI assistant">
+      <form class="ai-form" id="aiForm" autocomplete="off">
+        <label class="ai-label" for="aiInput">
+          <span>Describe a rule in English</span>
+          <span class="ai-badge" id="aiBadge" title="Which AI model converts English to DSL">AI &middot; checking…</span>
+        </label>
+        <div class="ai-row">
+          <input id="aiInput" type="text" maxlength="500"
+                 placeholder="e.g. If the temperature is above 30 and the door is open, turn on the fan">
+          <button id="aiBtn" class="btn btn-primary" type="submit">Convert to DSL</button>
+        </div>
+      </form>
+      <div class="ai-result" id="aiResult" hidden>
+        <div class="ai-result-head">
+          <span class="ai-check" id="aiCheck"></span>
+          <span class="ai-meta" id="aiMeta"></span>
+        </div>
+        <pre class="ai-code" id="aiCode"></pre>
+        <p class="ai-note" id="aiNote" hidden></p>
+        <div class="ai-actions">
+          <button class="btn btn-primary" type="button" id="aiReplace">Replace editor</button>
+          <button class="btn" type="button" id="aiAppend">Add to editor</button>
+          <button class="link-btn" type="button" id="aiDismiss">Dismiss</button>
+        </div>
+      </div>
+    </section>
+
     <section class="pipeline" aria-label="Compiler phases">
       <ol class="steps">
-        <li class="step done" data-step="lexer">
+        <li><button class="step" type="button" data-step="lexer" data-tab="tokens">
           <span class="step-num">01</span><span class="step-name">Lexer</span><span class="step-sub">Tokens</span>
-        </li>
-        <li class="step done" data-step="parser">
+        </button></li>
+        <li><button class="step" type="button" data-step="parser" data-tab="ast">
           <span class="step-num">02</span><span class="step-name">Parser</span><span class="step-sub">Grammar check</span>
-        </li>
-        <li class="step done" data-step="ast">
+        </button></li>
+        <li><button class="step" type="button" data-step="ast" data-tab="ast">
           <span class="step-num">03</span><span class="step-name">AST</span><span class="step-sub">Syntax tree</span>
-        </li>
-        <li class="step planned">
-          <span class="step-num">04</span><span class="step-name">Semantic</span><span class="step-sub">Symbol table</span>
-        </li>
-        <li class="step planned">
+        </button></li>
+        <li><button class="step" type="button" data-step="semantic" data-tab="symbols">
+          <span class="step-num">04</span><span class="step-name">Semantic</span><span class="step-sub">Symbol table, types</span>
+        </button></li>
+        <li><button class="step" type="button" data-step="ir" data-tab="ir" data-ir="original">
           <span class="step-num">05</span><span class="step-name">IR</span><span class="step-sub">Three-address code</span>
-        </li>
-        <li class="step planned">
+        </button></li>
+        <li><button class="step" type="button" data-step="optimizer" data-tab="ir" data-ir="optimized">
           <span class="step-num">06</span><span class="step-name">Optimizer</span><span class="step-sub">Folding, dead code</span>
-        </li>
-        <li class="step planned">
+        </button></li>
+        <li><button class="step" type="button" data-step="codegen" data-tab="c">
           <span class="step-num">07</span><span class="step-name">Codegen</span><span class="step-sub">Target C code</span>
-        </li>
+        </button></li>
       </ol>
       <div class="legend">
-        <span><i class="dot dot-done"></i>Implemented</span>
-        <span><i class="dot dot-planned"></i>Planned</span>
+        <span><i class="dot dot-ok"></i>Passed</span>
+        <span><i class="dot dot-error"></i>Errors found</span>
+        <span><i class="dot dot-skipped"></i>Not run (an earlier phase failed)</span>
+        <span class="legend-hint">Click a phase to see its output</span>
       </div>
     </section>
 
@@ -107,28 +137,31 @@
           <button class="tab active" role="tab" data-tab="tokens" aria-selected="true">
             Tokens <span class="count" id="tokenCount">0</span>
           </button>
-          <button class="tab" role="tab" data-tab="ast" aria-selected="false">
-            Syntax tree
-          </button>
-          <button class="tab" role="tab" data-tab="errors" aria-selected="false">
-            Errors <span class="count" id="errorCount">0</span>
+          <button class="tab" role="tab" data-tab="ast" aria-selected="false">Syntax tree</button>
+          <button class="tab" role="tab" data-tab="symbols" aria-selected="false">Symbols</button>
+          <button class="tab" role="tab" data-tab="ir" aria-selected="false">IR</button>
+          <button class="tab" role="tab" data-tab="c" aria-selected="false">C code</button>
+          <button class="tab" role="tab" data-tab="sim" aria-selected="false">Simulator</button>
+          <button class="tab" role="tab" data-tab="problems" aria-selected="false">
+            Problems <span class="count" id="problemCount">0</span>
           </button>
           <span class="tab-indicator" id="tabIndicator"></span>
         </div>
 
         <div class="tab-body">
+          <!-- Phase 1 -->
           <div class="pane active" id="pane-tokens" role="tabpanel">
             <div class="empty" id="tokensEmpty"><span>Press <strong>Compile</strong> to run the lexer.</span></div>
-            <table class="token-table" id="tokenTable" hidden>
-              <thead>
-                <tr><th>#</th><th>Line:Col</th><th>Token</th><th>Lexeme</th></tr>
-              </thead>
+            <table class="data-table" id="tokenTable" hidden>
+              <thead><tr><th>#</th><th>Line:Col</th><th>Token</th><th>Lexeme</th></tr></thead>
               <tbody id="tokenBody"></tbody>
             </table>
           </div>
 
+          <!-- Phases 2-3 -->
           <div class="pane" id="pane-ast" role="tabpanel">
             <div class="pane-tools" id="astTools" hidden>
+              <span class="pane-title">Abstract syntax tree</span>
               <button class="link-btn" type="button" id="expandAll">Expand all</button>
               <button class="link-btn" type="button" id="collapseAll">Collapse all</button>
             </div>
@@ -136,8 +169,70 @@
             <div class="tree" id="astTree"></div>
           </div>
 
-          <div class="pane" id="pane-errors" role="tabpanel">
-            <div class="empty" id="errorsEmpty"><span>Press <strong>Compile</strong> to check the program.</span></div>
+          <!-- Phase 4 -->
+          <div class="pane" id="pane-symbols" role="tabpanel">
+            <div class="empty" id="symbolsEmpty"><span>Press <strong>Compile</strong> to build the symbol table.</span></div>
+            <div id="symbolsBody" hidden>
+              <table class="data-table">
+                <thead><tr><th>Name</th><th>Kind</th><th>Type</th><th>Declared</th><th>Uses</th></tr></thead>
+                <tbody id="symbolRows"></tbody>
+              </table>
+              <div class="note-block">
+                <h3>Built-in actions</h3>
+                <p class="mono-list">turn_on(device) &middot; turn_off(device) &middot; toggle(device) &middot; set_level(device, number)</p>
+                <h3>Type rules</h3>
+                <p>NUMBER sensors compare with numbers using &gt; &lt; &gt;= &lt;= == !=. STATE sensors compare only with == and != against ON, OFF, OPEN, CLOSED, TRUE, FALSE. Every name must be declared once.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Phases 5-6 -->
+          <div class="pane" id="pane-ir" role="tabpanel">
+            <div class="empty" id="irEmpty"><span>Intermediate code is generated once the program passes semantic analysis.</span></div>
+            <div id="irBody" hidden>
+              <div class="pane-tools">
+                <div class="segmented" role="group" aria-label="IR version">
+                  <button type="button" class="seg active" data-ir="original">Original</button>
+                  <button type="button" class="seg" data-ir="optimized">Optimized</button>
+                </div>
+                <span class="ir-summary" id="irSummary"></span>
+              </div>
+              <div class="opt-report" id="optReport" hidden></div>
+              <ol class="ir-list" id="irList"></ol>
+            </div>
+          </div>
+
+          <!-- Phase 7 -->
+          <div class="pane" id="pane-c" role="tabpanel">
+            <div class="empty" id="cEmpty"><span>C code is generated once the program compiles without errors.</span></div>
+            <div id="cBody" hidden>
+              <div class="pane-tools">
+                <span class="pane-title">Generated from the optimized IR</span>
+                <button class="link-btn" type="button" id="copyC">Copy</button>
+                <button class="btn btn-small" type="button" id="runC" title="Compiles this C code with the runtime and runs it with the simulator's sensor values">Build &amp; run</button>
+              </div>
+              <div class="run-output" id="runOutput" hidden></div>
+              <pre class="c-code" id="cCode"></pre>
+            </div>
+          </div>
+
+          <!-- Simulator -->
+          <div class="pane" id="pane-sim" role="tabpanel">
+            <div class="empty" id="simEmpty"><span>The simulator runs once the program compiles without errors.</span></div>
+            <div id="simBody" class="sim" hidden>
+              <p class="sim-intro">Change the sensor values. The optimized intermediate code runs in the browser on every change.</p>
+              <h3>Sensors</h3>
+              <div class="sensor-list" id="sensorList"></div>
+              <h3>Devices</h3>
+              <div class="device-grid" id="deviceGrid"></div>
+              <h3>Rules</h3>
+              <ol class="rule-list" id="ruleList"></ol>
+            </div>
+          </div>
+
+          <!-- Errors and warnings -->
+          <div class="pane" id="pane-problems" role="tabpanel">
+            <div class="empty" id="problemsEmpty"><span>Press <strong>Compile</strong> to check the program.</span></div>
             <ul class="error-list" id="errorList"></ul>
           </div>
         </div>
@@ -147,9 +242,10 @@
     <footer class="statusbar">
       <span class="status" id="status"><i class="status-dot"></i><span id="statusText">Ready</span></span>
       <span class="stat"><span class="stat-label">Tokens</span><span id="statTokens">–</span></span>
-      <span class="stat"><span class="stat-label">Declarations</span><span id="statDecls">–</span></span>
       <span class="stat"><span class="stat-label">Rules</span><span id="statRules">–</span></span>
       <span class="stat"><span class="stat-label">Errors</span><span id="statErrors">–</span></span>
+      <span class="stat"><span class="stat-label">Warnings</span><span id="statWarnings">–</span></span>
+      <span class="stat"><span class="stat-label">IR</span><span id="statIr">–</span></span>
       <span class="stat"><span class="stat-label">Time</span><span id="statTime">–</span></span>
     </footer>
 
