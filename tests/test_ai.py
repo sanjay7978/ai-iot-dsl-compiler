@@ -50,6 +50,12 @@ class HelpersTest(unittest.TestCase):
         src = "SENSOR t : NUMBER\nDEVICE fan, light\nIF t > 1 THEN turn_on(fan)\n"
         self.assertEqual(ai.existing_declarations(src), ["SENSOR t : NUMBER", "DEVICE fan, light"])
 
+    def test_offline_explain_new_warnings(self):
+        self.assertIn("ELSE IF", ai.offline_explain("this ELSE IF can never run: whenever ..."))
+        self.assertIn("overrides", ai.offline_explain("conflict: rule 2 turns 'fan' off while rule 1 ..."))
+        self.assertIn("same time", ai.offline_explain("this condition can never be true, so its actions never run"))
+        self.assertIn("numbers", ai.offline_explain("arithmetic '+' needs numbers, but state OPEN is not a number"))
+
     def test_offline_explain(self):
         text = ai.offline_explain("'fan' is not a registered device")
         self.assertIn("DEVICE fan", text)

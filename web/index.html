@@ -81,13 +81,13 @@
           <span class="step-num">03</span><span class="step-name">AST</span><span class="step-sub">Syntax tree</span>
         </button></li>
         <li><button class="step" type="button" data-step="semantic" data-tab="symbols">
-          <span class="step-num">04</span><span class="step-name">Semantic</span><span class="step-sub">Symbol table, types</span>
+          <span class="step-num">04</span><span class="step-name">Semantic</span><span class="step-sub">Types, rule checks</span>
         </button></li>
         <li><button class="step" type="button" data-step="ir" data-tab="ir" data-ir="original">
           <span class="step-num">05</span><span class="step-name">IR</span><span class="step-sub">Three-address code</span>
         </button></li>
         <li><button class="step" type="button" data-step="optimizer" data-tab="ir" data-ir="optimized">
-          <span class="step-num">06</span><span class="step-name">Optimizer</span><span class="step-sub">Folding, dead code</span>
+          <span class="step-num">06</span><span class="step-name">Optimizer</span><span class="step-sub">CFG, dataflow</span>
         </button></li>
         <li><button class="step" type="button" data-step="codegen" data-tab="c">
           <span class="step-num">07</span><span class="step-name">Codegen</span><span class="step-sub">Target C code</span>
@@ -194,6 +194,7 @@
                 <div class="segmented" role="group" aria-label="IR version">
                   <button type="button" class="seg active" data-ir="original">Original</button>
                   <button type="button" class="seg" data-ir="optimized">Optimized</button>
+                  <button type="button" class="seg" data-ir="cfg">Basic blocks</button>
                 </div>
                 <span class="ir-summary" id="irSummary"></span>
               </div>

@@ -189,11 +189,12 @@ def _errors(result):
 
 LANGUAGE_REFERENCE = """IoT DSL reference:
 - Declarations:  SENSOR <name> : NUMBER    SENSOR <name> : STATE    DEVICE <name>, <name>
-- Rule:          IF <condition> THEN <action> [<action> ...] [ELSE <action> ...]
-- Condition:     <sensor> <op> <value>, where op is > < >= <= == != ; combine with AND, OR, NOT and ( ).
+- Rule:          IF <condition> THEN <action> [<action> ...] { ELSE IF <condition> THEN <action> ... } [ELSE <action> ...]
+- Condition:     <value> <op> <value>, where op is > < >= <= == != ; combine with AND, OR, NOT and ( ).
+- Arithmetic:    NUMBER values may use + - * / and parentheses, e.g. temperature - outside > 5.
 - NUMBER sensors are compared with numbers (decimals allowed).
 - STATE sensors are compared only with == or != against ON, OFF, OPEN, CLOSED, TRUE, FALSE.
-- Actions:       turn_on(device)  turn_off(device)  toggle(device)  set_level(device, number from 0 to 100)
+- Actions:       turn_on(device)  turn_off(device)  toggle(device)  set_level(device, number expression 0-100)
 - Names use lowercase letters, digits and underscores (e.g. soil_moisture). Keywords are UPPERCASE.
 - Every sensor and device that a rule uses must be declared."""
 
@@ -222,7 +223,20 @@ DEVICE light, ac
 IF motion == ON OR humidity < 40
 THEN turn_on(light)
      set_level(ac, 22)
-ELSE turn_off(light)"""
+ELSE turn_off(light)
+
+Example
+English: If the window is open turn the heater off, else if it is colder than 18 heat at 10 times the difference to 22, otherwise turn the heater off.
+DSL:
+SENSOR window : STATE
+SENSOR temperature : NUMBER
+DEVICE heater
+
+IF window == OPEN
+THEN turn_off(heater)
+ELSE IF temperature < 18
+THEN set_level(heater, (22 - temperature) * 10)
+ELSE turn_off(heater)"""
 
 DECL_RE = re.compile(r"^\s*(SENSOR\s+\w+\s*:\s*(?:NUMBER|STATE)|DEVICE\s+\w+(?:\s*,\s*\w+)*)\s*$", re.M)
 
@@ -491,6 +505,38 @@ _TEMPLATES = [
     (r"declared but never used",
      "This is only a warning: the name is declared but no rule uses it. The program still compiles.",
      "Use it in a rule or remove the declaration"),
+    (r"can never be true",
+     "The compiler rewrote the condition as OR-of-AND groups and found that no sensor values can satisfy any "
+     "group, e.g. a temperature cannot be above 30 and below 20 at the same time. The actions can never run.",
+     "Check the numbers and operators, or join the comparisons with OR instead of AND"),
+    (r"is always true",
+     "The negation of this condition can never be satisfied, so the condition holds for every sensor value and "
+     "does not really test anything.",
+     "Make the comparison stricter, or remove the condition"),
+    (r"this ELSE IF can never run",
+     "An ELSE IF only runs when every earlier condition is false. Whenever this condition is true, an earlier "
+     "one is already true, so control never reaches it.",
+     "Put the more specific test first, e.g. check temperature > 40 before temperature > 30"),
+    (r"ELSE part can never run",
+     "The conditions before ELSE together cover every possible sensor value, so the ELSE branch is unreachable.",
+     "Remove the ELSE part or change one of the conditions"),
+    (r"possible conflict|conflict: rule",
+     "Two rules control the same device in different ways, and the compiler found sensor values for which both "
+     "conditions are true. Rules run in order, so the later rule silently overrides the earlier one.",
+     "Make the conditions exclusive (e.g. add AND NOT ...) or merge them into one rule with ELSE IF"),
+    (r"only the last action has effect",
+     "The same branch changes one device twice, so the first action is immediately overwritten.",
+     "Keep only the action you want"),
+    (r"arithmetic '.' needs numbers",
+     "+, -, * and / only work on numbers. STATE values such as OPEN or ON cannot be added or multiplied.",
+     "Use arithmetic only with NUMBER sensors and numbers"),
+    (r"condition must be true or false",
+     "A condition has to be a comparison or a combination of comparisons. A plain number or sensor is not "
+     "true or false by itself.",
+     "Compare it with something, e.g. temperature > 30"),
+    (r"division by zero",
+     "Dividing by zero has no defined result, so the generated program would produce an invalid value.",
+     "Divide by a non-zero number"),
     (r"compares two constants",
      "This is only a warning: the condition doesn't depend on any sensor, so it is always true or always "
      "false. The optimizer will remove the branch that can never run.",

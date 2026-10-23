@@ -86,7 +86,7 @@
       } else if (/[0-9]/.test(c)) {
         while (j < src.length && /[0-9.]/.test(src[j])) j++;
         k = "s-num";
-      } else if (/[<>=!(),:]/.test(c)) {
+      } else if (/[<>=!(),:+\-*\/]/.test(c)) {
         k = "s-op";
       } else if (!/\s/.test(c)) {
         k = "s-bad";
@@ -572,7 +572,7 @@
     }
     setEmpty(el.irEmpty, el.irBody, false);
 
-    const optimized = state.irView === "optimized";
+    const optimized = state.irView !== "original";
     const code = optimized ? r.optimizedIr : r.ir;
     const o = r.optimization;
     if (optimized) {
@@ -588,6 +588,12 @@
       el.optReport.hidden = true;
     }
 
+    if (state.irView === "cfg") {
+      renderBlocks(r);
+      return;
+    }
+
+    el.irList.classList.remove("bb-list");
     let n = 0;
     el.irList.innerHTML = code
       .map((ins, i) => {
@@ -598,6 +604,33 @@
         return `<li class="${cls}"><span class="ln">${ln}</span><span class="ins">${irHtml(ins)}</span></li>`;
       })
       .join("");
+  }
+
+  // Basic blocks of the optimized code, with CFG edges and liveness.
+  function renderBlocks(r) {
+    const edges = r.cfg.reduce((n, b) => n + b.succ.length, 0);
+    el.irSummary.textContent = `${r.cfg.length} basic blocks · ${edges} edges`;
+    el.optReport.hidden = false;
+    el.optReport.innerHTML =
+      '<span class="chip" title="Leaders: the first instruction, every label, every rule start and every instruction after a jump">Leaders start a new block</span>' +
+      '<span class="chip" title="IN[B] = USE[B] ∪ (OUT[B] − DEF[B]),  OUT[B] = ∪ IN[successors]">Liveness: backward dataflow</span>' +
+      '<span class="chip" title="IN[B] = ∩ OUT[predecessors],  OUT[B] = IN[B] ∪ GEN[B]">CSE: available expressions</span>';
+    const set = (s) => (s.length ? "{" + s.join(", ") + "}" : "∅");
+    el.irList.innerHTML = r.cfg
+      .map((b) => {
+        const code = r.optimizedIr.slice(b.first, b.last)
+          .map((ins) => `<div class="${ins.op === "label" || ins.op === "rule" ? "" : "bb-ins"}">${irHtml(ins)}</div>`)
+          .join("");
+        const to = b.succ.map((s) => "B" + s).concat(b.exits ? ["EXIT"] : []).join(", ") || "none";
+        const from = b.pred.length ? b.pred.map((p) => "B" + p).join(", ") : b.id === 1 ? "ENTRY" : "none";
+        return `<li class="bb"><div class="bb-head"><span class="bb-id">B${b.id}</span>` +
+          `<span class="bb-edges">from ${from} &nbsp;→&nbsp; ${to}</span></div>` +
+          `<div class="bb-code">${code}</div>` +
+          `<div class="bb-live"><span>live in <b>${escapeHtml(set(b.liveIn))}</b></span>` +
+          `<span>live out <b>${escapeHtml(set(b.liveOut))}</b></span></div></li>`;
+      })
+      .join("");
+    el.irList.classList.add("bb-list");
   }
 
   // C code ---------------------------------------------------------------
@@ -643,7 +676,9 @@
     el.runOutput.className = "run-output";
     el.runOutput.innerHTML = "<pre>Compiling the C code with the runtime library…</pre>";
     try {
-      const d = await postJson("/api/run", { source: state.compiledSource, inputs: state.simInputs });
+      const sensors = state.result.symbols.filter((s) => s.kind === "sensor").map((s) => s.name);
+      const inputs = Object.fromEntries(sensors.filter((n) => n in state.simInputs).map((n) => [n, state.simInputs[n]]));
+      const d = await postJson("/api/run", { source: state.compiledSource, inputs });
       if (!d.ok) throw new Error(d.error);
       el.runOutput.innerHTML =
         `<div class="cmd">$ ${d.commands.map(escapeHtml).join("<br>$ ")}</div>` +
@@ -762,6 +797,10 @@
         case "!=": return a !== b;
         case "AND": return a && b;
         case "OR": return a || b;
+        case "+": return a + b;
+        case "-": return a - b;
+        case "*": return a * b;
+        case "/": return a / b;
       }
       return false;
     };
@@ -771,6 +810,7 @@
       switch (ins.op) {
         case "binary": temps[ins.dest] = binop(ins.oper, val(ins.a), val(ins.b)); break;
         case "not": temps[ins.dest] = !val(ins.a); break;
+        case "neg": temps[ins.dest] = -val(ins.a); break;
         case "copy": temps[ins.dest] = val(ins.a); break;
         case "if_false": if (!val(ins.a)) pc = labels[ins.label]; break;
         case "goto": pc = labels[ins.label]; break;
@@ -783,7 +823,8 @@
             else if (ins.callee === "toggle") { d.on = !d.on; d.level = d.on ? 100 : 0; }
             else if (ins.callee === "set_level") { d.level = args[1]; d.on = args[1] > 0; }
           }
-          (actions[ins.rule] = actions[ins.rule] || []).push(ins.text.replace(/^CALL /, ""));
+          const shown = args.map((v) => (typeof v === "number" ? +v.toFixed(3) : v)).join(", ");
+          (actions[ins.rule] = actions[ins.rule] || []).push(`${ins.callee}(${shown})`);
           break;
         }
       }
