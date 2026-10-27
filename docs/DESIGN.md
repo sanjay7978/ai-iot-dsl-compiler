@@ -22,8 +22,10 @@ The compiler itself is written by hand in C++17, without generator tools such as
 | 4 | Semantic analysis | `src/semantic.cpp`, `src/rule_analysis.cpp` | Symbol table, types, declaration errors, rule analysis warnings |
 | 5 | Intermediate code | `src/ir.cpp` | Three-address code |
 | 6 | Optimization | `src/cfg.cpp`, `src/optimizer.cpp` | Basic blocks, CFG, dataflow analyses, optimized code and a report |
-| 7 | Code generation | `src/codegen.cpp` | C source code (`runtime/` supplies sensors and devices) |
-| – | AI assistance | `ai.py` | English → DSL, plain-English error explanations |
+| 7 | Code generation | `src/codegen.cpp` | C, Arduino/ESP32, Python and JavaScript (`runtime/` supplies sensors and devices) |
+| – | Grammar analysis | `src/grammar.cpp` | FIRST/FOLLOW sets and the LL(1) parse table (proves the grammar is LL(1)) |
+| – | English back-translation | `src/english.cpp` | The program explained in plain English, without AI |
+| – | AI assistance | `ai.py` | English → DSL, error explanations, AI fixes (all re-checked by the compiler) |
 
 `src/compiler.cpp` runs the phases in order. A phase runs only if every earlier phase finished without errors; warnings never stop compilation.
 The lexer and the parser always both run, so lexical and syntax errors are reported together.
@@ -220,33 +222,97 @@ The passes run repeatedly until nothing changes, because one optimization often 
 
 `examples/07_optimization.iot` shrinks from 21 to 10 instructions. It uses all eight passes.
 
-## 8. Phase 7 — Code generation
+## 8. Phase 7 — Code generation (retargetable)
 
-The generator reads the optimized IR. It recognizes the two shapes the IR generator emits:
+One **structured emitter** reads the optimized IR and recognizes the two shapes the IR generator emits:
 - `IF_FALSE c GOTO L1 … L1:` becomes `if (c) { … }`
 - `IF_FALSE c GOTO L1 … GOTO L2 L1: … L2:` becomes `if (c) { … } else { … }`
 
-A jump to the end label of the enclosing range means "leave this block". This turns an ELSE IF chain into nested `if { } else { if { } else { } }`. The C output therefore uses normal `if`/`else` blocks rather than `goto`.
+A jump to the end label of the enclosing range means "leave this block". This turns an ELSE IF chain into nested `if { } else { if { } else { } }`.
 
-Arithmetic temporaries are declared `double` and condition temporaries `bool`.
+The emitter asks a small **`Target`** class for the syntax: literals, operators, declarations, blocks, calls and the file's beginning and end. Four targets share the same control-flow recovery:
 
-The generated C has:
-- a device enum and a device-name table
-- an `evaluate_rules()` function that reads each sensor it needs once, then runs the rules
-- `bool` temporaries for the conditions
+| Target | File | Notes |
+|--------|------|-------|
+| C | `program.c` | `bool`/`double` temporaries; linked with `runtime/iot_runtime.c` |
+| Arduino / ESP32 | `program.ino` | `setup()` and `loop()`, a pin table, `analogRead`/`digitalRead` inputs, `digitalWrite` for on/off, PWM `analogWrite` for levels |
+| Python | `program.py` | indentation blocks (`pass` for an empty block); `runtime/iot_runtime.py` |
+| JavaScript | `program.js` | `const` temporaries and `===`; `runtime/iot_runtime.js` |
 
-`runtime/iot_runtime.c` provides:
-- `read_number` and `read_state`, which take sensor values from command-line arguments such as `temperature=32`
-- the device actions
-- a `main()` that prints the final device states
-
-On a real board, these functions would read hardware and drive GPIO pins.
+- **Reserved words.** Each target has its own list, so a sensor named `if`, `not` or `window` becomes `if_` or `not_` only where needed.
+- **Source map.** Every generated line remembers the IR instruction and source span it came from.
+- **Same results everywhere.** The three runtimes read `name=value` arguments and print the same output. The test suite runs every example through C, Python and JavaScript with several inputs and checks the outputs are identical. Arduino sketches are compiled against `tests/arduino_stub.h`.
 
 ```bash
-make demo FILE=examples/02_smart_home.iot ARGS="temperature=32 door=OPEN motion=OFF humidity=30"
+make demo FILE=examples/09_thermostat.iot ARGS="window=CLOSED temperature=15 outside=10"
+./iotc examples/09_thermostat.iot --target python -o program.py
 ```
 
-## 9. AI assistance
+## 9. Grammar analysis, traces and source maps
+
+- **FIRST, FOLLOW and the LL(1) table (`src/grammar.cpp`).**
+  - The grammar is stored as data in BNF: 61 productions, with "tail" nonterminals for the EBNF repetitions.
+  - FIRST and FOLLOW are computed by the textbook fixpoint algorithms.
+  - The LL(1) table is built as follows: `M[A, a]` holds `A → α` for every `a` in FIRST(α), and for every `a` in FOLLOW(A) when α can derive ε.
+  - No cell holds two productions, which proves the grammar is LL(1). That is exactly why the hand-written recursive-descent parser can always decide with one token.
+  - `iotc --grammar` prints everything; the web page's **Language** tab draws it.
+- **Scanner DFA.** `lexerDfa()` describes the automaton the hand-written lexer implements (17 states). With tracing on, every character step `from → to` is recorded.
+- **Parse trace.** With tracing on, the parser records entering and leaving each grammar function, consuming tokens, and errors. Together with the DFA trace, this drives the X-ray animation.
+- **Source maps.** Every IR instruction and every generated line keeps the source span it came from.
+- **Optimizer snapshots.** The code is recorded after every pass that changed it (the "time machine").
+- **Quick fixes.** Diagnostics carry IDE-style edits:
+  - rename to the close match
+  - declare the missing `DEVICE` / `SENSOR` (with the type inferred from the comparison)
+  - insert `THEN` or `)`
+  - `=` → `==`
+  - uppercase a keyword
+  - remove a bad character
+- **English back-translation (`src/english.cpp`).** The AST is turned into sentences such as "If the temperature is above 30 and the door is open, turn on the fan." It applies De Morgan's laws to negations and keeps grouping in arithmetic.
+
+## 10. The web interface
+
+Everything is plain HTML, CSS and JavaScript (ES modules, no libraries), served by `server.py`. The page only *shows* what the C++ compiler produced.
+
+- **Compiler X-ray (`web/js/xray.js`).** A full-screen player of the real traces:
+  1. The scanner cursor moves while the DFA lights up its states.
+  2. The parser call stack and the lookahead token are shown while the syntax tree grows.
+  3. The symbol table fills and the checks appear.
+  4. IR lines appear next to their source.
+  5. The optimizer passes run one by one.
+  6. C is written line by line.
+  7. A summary is shown.
+- **Smart editor (`editor.js`).**
+  - Live compile while typing.
+  - Autocomplete for keywords, declared names and actions.
+  - Hover info (kind, type, declaration, uses) and Ctrl/⌘-click to go to the declaration.
+  - Problem tooltips and one-click quick fixes that keep undo working.
+- **Cross-pane linking (`panes.js`).** Hovering a token, AST node, IR line, CFG block, problem or generated line highlights the matching source and the matching items in every other pane, using the source maps.
+- **Graphs (`graph.js`).** The AST is a tidy top-down tree. The CFG is drawn in layers with true/false edges and live-in/live-out sets. The DFA is a hand-laid-out state diagram. All three support pan and zoom.
+- **Digital twin (`twin.js`, `vm.js`).** A floor plan whose devices are placed and animated by name (fan, light, heater, cooler, pump, alarm, vent, lock …). Every sensor change runs the **optimized IR** in a small virtual machine. A rule that changes a device shows a "Rule n" label; rules fighting over a device turn it red.
+- **24-hour day (`timeline.js`).** Each number sensor follows a daily curve that crosses the thresholds the program tests. State sensors follow plausible schedules, such as the door opening in the morning and evening. Simple physics closes the loop: heaters warm the room, coolers cool it, pumps raise soil moisture. The rules run every 5 minutes, and the chart shows sensors, devices and conflict marks like a logic analyzer.
+- **AI (`ai.js`).**
+  - English to DSL, typed or spoken via the browser's Web Speech API.
+  - "Explain program", using the compiler's English with an optional friendlier AI version.
+  - Per-problem explanations.
+  - "AI fix", which is offered only if the compiler accepts the AI's corrected program.
+- **Demo extras.**
+  - Presentation mode (`tour.js`).
+  - Command palette (Ctrl/⌘+K).
+  - Share links, where the program is deflate-compressed into `#p=…` (`share.js`).
+  - A printable report of every phase, to save as PDF (`report.js`).
+
+### Phone remote
+
+`make remote` starts the server on the Wi-Fi address with a random session key. The page shows the remote URL as a **QR code** made by a hand-written encoder (`web/js/qr.js`: byte mode, error correction M, versions 1–10, Reed–Solomon over GF(256)).
+
+```
+phone ──POST /api/remote/state?k=KEY──▶ server ──Server-Sent Events──▶ laptop page ──▶ VM ──▶ twin
+phone ◀──GET /api/remote/config?k=KEY── server ◀──POST /api/remote/config── laptop page
+```
+
+**Security.** Requests that do not come from the laptop itself can only reach the remote page and these two endpoints, and must carry the key. Everything else is localhost-only: compiling, running code, AI, the event stream and changing the configuration. Sensor names and values are validated before use.
+
+## 11. AI assistance (details)
 
 `ai.py` uses only the Python standard library and free providers. It picks one automatically, unless `AI_PROVIDER` is set in `.env` (see `.env.example`):
 1. **Groq** if `GROQ_API_KEY` is set
@@ -262,16 +328,7 @@ make demo FILE=examples/02_smart_home.iot ARGS="temperature=32 door=OPEN motion=
 
 **Explain.** Each problem has an Explain button. The model gets the numbered source and the diagnostic, and answers in 2–3 sentences followed by a `Fix:` line. Without a model, built-in templates are used.
 
-## 10. Simulator
-
-The web page includes a simulator.
-- It builds controls from the symbol table: sliders for NUMBER sensors, and buttons for STATE sensors offering the values the rules compare against.
-- It runs the **optimized IR** in a small virtual machine in the browser.
-- It shows device states and which rules fired.
-
-The C tab's **Build & run** button compiles the generated C with the same sensor values, as a cross-check.
-
-## 11. Source layout
+## 12. Source layout
 
 | Path | Role |
 |------|------|
@@ -282,10 +339,11 @@ The C tab's **Build & run** button compiles the generated C with the same sensor
 | `src/ir.*` | Phase 5: three-address code |
 | `src/cfg.*` | Phase 6: basic blocks, CFG, liveness, available expressions |
 | `src/optimizer.*` | Phase 6: optimization passes |
-| `src/codegen.*`, `runtime/` | Phase 7 and the C runtime |
+| `src/codegen.*`, `runtime/` | Phase 7: structured emitter, four targets, C/Python/JS runtimes |
+| `src/grammar.*`, `src/english.*` | FIRST/FOLLOW/LL(1) analysis; English back-translation |
 | `src/compiler.*` | Pipeline driver |
 | `src/json.*`, `src/main.cpp` | JSON output and the `iotc` command-line tool |
-| `server.py`, `ai.py` | Local web server and AI assistant (Python standard library only) |
-| `web/` | Web interface (HTML, CSS, JavaScript, no frameworks) |
+| `server.py`, `ai.py` | Local web server, phone-remote relay and AI assistant (Python standard library only) |
+| `web/`, `web/js/` | Web interface as ES modules (no frameworks); `web/remote.html` is the phone page |
 | `examples/` | Sample programs: valid ones, ones with lexical, syntax and semantic errors, rule analysis (`08`) and a thermostat with ELSE IF and arithmetic (`09`) |
-| `tests/` | `run_tests.sh` (all phases, including compiling and running the C output) and `test_ai.py` |
+| `tests/` | `run_tests.sh` (all phases, every target), `test_ai.py`, `test_server.py`, `arduino_stub.h` |
