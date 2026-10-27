@@ -9,7 +9,13 @@
 //   --opt        Phase 6: optimized intermediate code and report
 //   --cfg        Phase 6: basic blocks, control-flow graph and liveness of the optimized code
 //   --c          Phase 7: generated C code only (handy for redirecting)
-//   -o FILE      write the generated C code to FILE
+//   --target T   Phase 7: generated code for T = c, arduino, python or js
+//   -o FILE      write the generated code (C, or the --target language) to FILE
+//   --english    the program explained in plain English
+//   --opt-trace  the code after every optimization pass that changed it
+//   --grammar    FIRST/FOLLOW sets and the LL(1) parse table of the grammar
+//   --language   the scanner DFA and grammar analysis as JSON
+//   --trace      with --json: include the scanner and parser traces
 //   --dot        AST in Graphviz DOT format
 //   --json       everything as JSON (used by the web interface)
 // With no section options, every phase is printed.
@@ -25,6 +31,8 @@
 
 #include "ast.h"
 #include "compiler.h"
+#include "codegen.h"
+#include "grammar.h"
 #include "json.h"
 
 namespace {
@@ -34,11 +42,14 @@ struct Options {
     std::string outFile;
     bool tokens = false, ast = false, symbols = false, ir = false, opt = false, cfg = false;
     bool c = false, dot = false, json = false;
+    bool english = false, optTrace = false, grammar = false, language = false, trace = false;
+    std::string target;
 };
 
 void usage() {
-    std::cerr << "usage: iotc [file.iot] [--tokens] [--ast] [--symbols] [--ir] [--opt] [--cfg] [--c] "
-                 "[-o out.c] [--dot] [--json]\n";
+    std::cerr << "usage: iotc [file.iot] [--tokens] [--ast] [--symbols] [--ir] [--opt] [--cfg] [--c]\n"
+                 "            [--target c|arduino|python|js] [-o FILE] [--english] [--opt-trace]\n"
+                 "            [--grammar] [--language] [--dot] [--json [--trace]]\n";
 }
 
 bool parseArgs(int argc, char** argv, Options& opt) {
@@ -53,6 +64,18 @@ bool parseArgs(int argc, char** argv, Options& opt) {
         else if (a == "--c") opt.c = true;
         else if (a == "--dot") opt.dot = true;
         else if (a == "--json") opt.json = true;
+        else if (a == "--english") opt.english = true;
+        else if (a == "--opt-trace") opt.optTrace = true;
+        else if (a == "--grammar") opt.grammar = true;
+        else if (a == "--language") opt.language = true;
+        else if (a == "--trace") opt.trace = true;
+        else if (a == "--target") {
+            if (i + 1 >= argc || !findTarget(argv[i + 1])) {
+                std::cerr << "--target needs one of: c, arduino, python, js\n";
+                return false;
+            }
+            opt.target = argv[++i];
+        }
         else if (a == "-o") {
             if (i + 1 >= argc) { std::cerr << "-o needs a file name\n"; return false; }
             opt.outFile = argv[++i];
@@ -143,11 +166,49 @@ void printCfg(const CompileResult& r) {
     }
 }
 
+void printGrammar() {
+    const GrammarAnalysis& g = grammarAnalysis();
+    heading("GRAMMAR (BNF)");
+    for (size_t i = 0; i < g.productions.size(); ++i) {
+        std::cout << std::setw(3) << i << "  " << g.productions[i].lhs << " ->";
+        if (g.productions[i].rhs.empty()) std::cout << " ε";
+        for (const std::string& s : g.productions[i].rhs) std::cout << " " << s;
+        std::cout << "\n";
+    }
+    auto set = [](const std::set<std::string>& s) {
+        std::string t = "{ ";
+        for (const std::string& x : s) t += (x.empty() ? "ε" : x) + " ";
+        return t + "}";
+    };
+    std::cout << "\n";
+    heading("FIRST AND FOLLOW SETS");
+    for (const std::string& a : g.nonterminals)
+        std::cout << std::left << std::setw(12) << a << " FIRST " << std::setw(44) << set(g.first.at(a))
+                  << " FOLLOW " << set(g.follow.at(a)) << "\n";
+    std::cout << "\n";
+    heading("LL(1) PARSE TABLE (nonterminal, lookahead -> production)");
+    for (const std::string& a : g.nonterminals) {
+        auto row = g.table.find(a);
+        if (row == g.table.end()) continue;
+        std::cout << std::left << std::setw(12) << a;
+        for (const auto& cell : row->second) {
+            std::cout << " " << cell.first << ":";
+            for (size_t k = 0; k < cell.second.size(); ++k) std::cout << (k ? "/" : "") << cell.second[k];
+        }
+        std::cout << "\n";
+    }
+    std::cout << "\n" << (g.conflicts.empty() ? "LL(1): no conflicts - every table cell has at most one production.\n"
+                                              : "LL(1) conflicts:\n");
+    for (const std::string& c : g.conflicts) std::cout << "  " << c << "\n";
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     Options opt;
     if (!parseArgs(argc, argv, opt)) { usage(); return 2; }
+    if (opt.language) { std::cout << languageJson() << "\n"; return 0; }
+    if (opt.grammar && opt.file.empty()) { printGrammar(); return 0; }
 
     std::stringstream buffer;
     if (opt.file.empty()) {
@@ -159,11 +220,11 @@ int main(int argc, char** argv) {
     }
 
     std::string name = opt.file.empty() ? "<stdin>" : opt.file;
-    CompileResult r = compile(buffer.str(), name);
+    CompileResult r = compile(buffer.str(), name, opt.trace);
     int status = r.errorCount() == 0 ? 0 : 1;
 
     if (opt.json) {
-        std::cout << toJson(r) << "\n";
+        std::cout << toJson(r, opt.trace) << "\n";
         return status;
     }
     if (opt.dot) {
@@ -177,22 +238,43 @@ int main(int argc, char** argv) {
                << " [" << d.line << ":" << d.col << "]: " << d.message << "\n";
     };
 
+    // Code for the chosen target (C by default).
+    std::string code;
+    for (const GeneratedCode& g : r.targets)
+        if (g.target == (opt.target.empty() ? "c" : opt.target)) code = g.code;
+
     if (!opt.outFile.empty()) {
         if (r.generatedCode()) {
             std::ofstream out(opt.outFile);
             if (!out) { std::cerr << "iotc: cannot write '" << opt.outFile << "'\n"; return 2; }
-            out << r.cCode;
+            out << code;
         }
     }
 
-    // --c: raw C on stdout (diagnostics on stderr) so it can be redirected.
-    if (opt.c) {
+    // --c / --target: raw code on stdout (diagnostics on stderr) so it can be redirected.
+    if ((opt.c || !opt.target.empty()) && opt.outFile.empty()) {
         printDiagnostics(std::cerr);
-        if (r.generatedCode()) std::cout << r.cCode;
+        if (r.generatedCode()) std::cout << code;
         return status;
     }
 
-    bool any = opt.tokens || opt.ast || opt.symbols || opt.ir || opt.opt || opt.cfg;
+    if (opt.grammar) printGrammar();
+    if (opt.english) {
+        heading("THE PROGRAM IN PLAIN ENGLISH");
+        for (const std::string& s : r.english) std::cout << s << "\n";
+        std::cout << "\n";
+    }
+    if (opt.optTrace) {
+        heading("OPTIMIZER TIME MACHINE (code after each pass that changed it)");
+        for (const OptSnapshot& snap : r.optimization.trace) {
+            std::cout << "--- " << snap.pass << " (round " << snap.round << ", "
+                      << irInstructionCount(snap.code) << " instructions)\n";
+            printIr(snap.code);
+        }
+    }
+
+    bool any = opt.tokens || opt.ast || opt.symbols || opt.ir || opt.opt || opt.cfg || opt.english ||
+               opt.optTrace || opt.grammar;
     bool all = !any && opt.outFile.empty();
 
     if (all || opt.tokens) printTokens(r.tokens);

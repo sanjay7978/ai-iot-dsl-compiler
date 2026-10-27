@@ -102,8 +102,8 @@ void SemanticAnalyzer::warning(const Node& at, const std::string& msg) {
     diags_.push_back(Diagnostic{"semantic", at.start.line, at.start.col, len, msg, "warning"});
 }
 
-// Returns " (did you mean 'x'?)" for a close declared name of the same kind.
-std::string SemanticAnalyzer::suggest(const std::string& name, SymbolKind kind) const {
+// Closest declared name of the same kind (edit distance <= 2), or "".
+std::string SemanticAnalyzer::bestMatch(const std::string& name, SymbolKind kind) const {
     std::string best;
     size_t bestDist = 3;
     for (const Symbol& s : table_->all()) {
@@ -111,7 +111,46 @@ std::string SemanticAnalyzer::suggest(const std::string& name, SymbolKind kind) 
         size_t d = editDistance(name, s.name);
         if (d < bestDist) { bestDist = d; best = s.name; }
     }
+    return best;
+}
+
+// Returns " (did you mean 'x'?)" for a close declared name of the same kind.
+std::string SemanticAnalyzer::suggest(const std::string& name, SymbolKind kind) const {
+    std::string best = bestMatch(name, kind);
     return best.empty() ? "" : " (did you mean '" + best + "'?)";
+}
+
+// A fix that inserts a declaration after the last existing one.
+Fix SemanticAnalyzer::declareFix(const std::string& text, const std::string& title) const {
+    if (hasDecl_) return Fix{title, declEnd_.line, declEnd_.col, 0, "\n" + text};
+    return Fix{title, 1, 1, 0, text + "\n"};
+}
+
+// Quick fixes for an undeclared name: rename to a close match, or declare it.
+void SemanticAnalyzer::fixUndeclared(const Operand& op, SymbolKind kind, const std::string& sensorType) {
+    std::string best = bestMatch(op.text, kind);
+    if (!best.empty())
+        addFix(Fix{"Change to '" + best + "'", op.start.line, op.start.col,
+                   static_cast<int>(op.text.size()), best});
+    if (kind == SymbolKind::Device)
+        addFix(declareFix("DEVICE " + op.text, "Declare 'DEVICE " + op.text + "'"));
+    else
+        addFix(declareFix("SENSOR " + op.text + " : " + sensorType,
+                          "Declare 'SENSOR " + op.text + " : " + sensorType + "'"));
+}
+
+// The type of an undeclared sensor is guessed from what it is compared with.
+void SemanticAnalyzer::retypeSensorFix(const Operand& op, const std::string& type) {
+    for (Diagnostic& d : diags_) {
+        if (d.line != op.start.line || d.col != op.start.col) continue;
+        for (Fix& f : d.fixes) {
+            size_t at = f.text.find(" : NUMBER");
+            if (at == std::string::npos) continue;
+            f.text.replace(at, 9, " : " + type);
+            at = f.title.find(" : NUMBER");
+            if (at != std::string::npos) f.title.replace(at, 9, " : " + type);
+        }
+    }
 }
 
 std::vector<Diagnostic> SemanticAnalyzer::analyze(const Program& program, SymbolTable& table) {
@@ -162,6 +201,11 @@ void SemanticAnalyzer::declare(const Statement& s) {
             error(name, "'" + name.text + "' is the name of a built-in action and cannot be declared");
     };
 
+    if (dynamic_cast<const SensorDecl*>(&s) || dynamic_cast<const DeviceDecl*>(&s)) {
+        if (!hasDecl_ || s.end.line > declEnd_.line || (s.end.line == declEnd_.line && s.end.col > declEnd_.col))
+            declEnd_ = s.end;
+        hasDecl_ = true;
+    }
     if (const SensorDecl* d = dynamic_cast<const SensorDecl*>(&s)) {
         add(d->name, SymbolKind::Sensor, d->type == "NUMBER" ? ValueType::Number : ValueType::State);
     } else if (const DeviceDecl* d = dynamic_cast<const DeviceDecl*>(&s)) {
@@ -235,6 +279,7 @@ ValueType SemanticAnalyzer::typeOf(const Expr& e, bool& ok) {
         Symbol* sym = table_->find(op->text);
         if (!sym) {
             error(*op, "'" + op->text + "' is not a declared sensor" + suggest(op->text, SymbolKind::Sensor));
+            fixUndeclared(*op, SymbolKind::Sensor);
             ok = false;
             return ValueType::None;
         }
@@ -269,6 +314,14 @@ ValueType SemanticAnalyzer::typeOf(const Expr& e, bool& ok) {
     bool lok = true, rok = true;
     ValueType lt = typeOf(*b.left, lok);
     ValueType rt = typeOf(*b.right, rok);
+    if (isRelationalOp(b.op)) {   // an undeclared sensor compared with a state is a STATE sensor
+        const Operand* l = dynamic_cast<const Operand*>(b.left.get());
+        const Operand* r = dynamic_cast<const Operand*>(b.right.get());
+        if (!lok && l && l->kind == OperandKind::Identifier && !table_->find(l->text) && rt == ValueType::State)
+            retypeSensorFix(*l, "STATE");
+        if (!rok && r && r->kind == OperandKind::Identifier && !table_->find(r->text) && lt == ValueType::State)
+            retypeSensorFix(*r, "STATE");
+    }
     if (!lok || !rok) {
         ok = false;
         return isArithmeticOp(b.op) ? ValueType::Number : ValueType::Bool;
@@ -329,9 +382,16 @@ void SemanticAnalyzer::checkAction(const Action& a) {
             if (Symbol* sym = table_->find(n->text)) sym->uses++;
     }
     if (!sig) {
-        std::string list;
-        for (const ActionSignature& s : builtinActions()) list += (list.empty() ? "" : ", ") + s.name;
+        std::string list, best;
+        size_t bestDist = 4;
+        for (const ActionSignature& s : builtinActions()) {
+            list += (list.empty() ? "" : ", ") + s.name;
+            size_t d = editDistance(a.name, s.name);
+            if (d < bestDist) { bestDist = d; best = s.name; }
+        }
         error(a, "unknown action '" + a.name + "' (available actions: " + list + ")");
+        if (!best.empty())
+            addFix(Fix{"Change to '" + best + "'", a.start.line, a.start.col, static_cast<int>(a.name.size()), best});
         return;
     }
     if (a.args.size() != sig->params.size()) {
@@ -358,6 +418,7 @@ void SemanticAnalyzer::checkAction(const Action& a) {
             Symbol* sym = table_->find(op->text);
             if (!sym) {
                 error(arg, "'" + op->text + "' is not a registered device" + suggest(op->text, SymbolKind::Device));
+                fixUndeclared(*op, SymbolKind::Device);
                 continue;
             }
             sym->uses++;

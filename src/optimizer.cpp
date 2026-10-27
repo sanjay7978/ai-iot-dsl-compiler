@@ -108,17 +108,27 @@ std::vector<IrInstr> Optimizer::optimize(std::vector<IrInstr> code, OptReport& r
     report_ = &report;
     report.before = irInstructionCount(code);
 
+    const size_t kMaxSnapshots = 80;
+    report.trace.push_back({"Original", 0, code});
+    int round = 0;
+    // Runs one pass and, if it changed the code, records a snapshot.
+    auto run = [&](size_t pass, bool changedCode) {
+        if (changedCode && report.trace.size() < kMaxSnapshots)
+            report.trace.push_back({report.passes[pass].name, round, code});
+        return changedCode;
+    };
+
     bool changed = true;
-    for (int round = 0; changed && round < 50; ++round) {
+    for (round = 1; changed && round <= 50; ++round) {
         changed = false;
-        changed |= constantFolding(code);
-        changed |= algebraicSimplification(code);
-        changed |= commonSubexpressions(code);
-        changed |= copyPropagation(code);
-        changed |= constantBranches(code);
-        changed |= unreachableCode(code);
-        changed |= redundantJumps(code);
-        changed |= deadTemporaries(code);
+        changed |= run(kFold, constantFolding(code));
+        changed |= run(kAlgebra, algebraicSimplification(code));
+        changed |= run(kCse, commonSubexpressions(code));
+        changed |= run(kCopy, copyPropagation(code));
+        changed |= run(kBranch, constantBranches(code));
+        changed |= run(kUnreachable, unreachableCode(code));
+        changed |= run(kJumps, redundantJumps(code));
+        changed |= run(kDead, deadTemporaries(code));
     }
 
     report.after = irInstructionCount(code);

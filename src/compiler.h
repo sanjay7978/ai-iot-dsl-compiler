@@ -7,6 +7,9 @@
 
 #include "ast.h"
 #include "cfg.h"
+#include "codegen.h"
+#include "lexer.h"
+#include "parser.h"
 #include "ir.h"
 #include "optimizer.h"
 #include "semantic.h"
@@ -28,7 +31,13 @@ struct CompileResult {
     std::vector<IrInstr> optimizedIr;
     OptReport optimization;
     Cfg cfg;                               // basic blocks of the optimized code, with liveness
-    std::string cCode;
+    std::vector<GeneratedCode> targets;    // C, Arduino, Python, JavaScript
+    std::string cCode;                     // = the C target's code
+    std::vector<std::string> english;      // the program explained in plain English
+
+    // Only filled when compiling with trace = true (for the visualizer).
+    std::vector<LexStep> lexTrace;
+    std::vector<ParseEvent> parseTrace;
 
     std::vector<Diagnostic> diagnostics;   // errors and warnings from every phase
     std::vector<PhaseStatus> phases;
@@ -44,4 +53,5 @@ struct CompileResult {
 // Each phase runs only if every earlier phase finished without errors
 // (warnings do not stop compilation). The lexer and parser always both run so
 // that lexical and syntax errors can be reported together.
-CompileResult compile(const std::string& source, const std::string& sourceName = "<input>");
+CompileResult compile(const std::string& source, const std::string& sourceName = "<input>",
+                      bool trace = false);

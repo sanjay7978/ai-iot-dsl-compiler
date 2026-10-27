@@ -1,23 +1,17 @@
-// codegen.cpp — emits structured C from the optimized three-address code.
+// codegen.cpp — retargetable code generation (C, Arduino, Python, JavaScript).
 //
-// The IR generator always produces one of two shapes per rule:
-//     IF_FALSE c GOTO L1  <then>  L1:                       ->  if (c) { then }
-//     IF_FALSE c GOTO L1  <then>  GOTO L2  L1:  <else>  L2:  ->  if (c) { then } else { else }
-// so the generator turns them back into if / if-else blocks instead of gotos.
+// The IR generator always produces one of these shapes per rule:
+//     IF_FALSE c GOTO L1  <then>  L1:                         ->  if (c) { then }
+//     IF_FALSE c GOTO L1  <then>  GOTO L2  L1:  <else>  L2:    ->  if (c) { then } else { else }
+// and an ELSE IF chain nests the second shape inside the else part. The
+// structured emitter below recognises these shapes and asks the Target for
+// the syntax, so all languages share the same control-flow recovery.
 
 #include "codegen.h"
 
 #include <cctype>
-#include <set>
 
 namespace {
-
-const std::set<std::string> kCKeywords = {
-    "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else",
-    "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long", "register",
-    "restrict", "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef",
-    "union", "unsigned", "void", "volatile", "while", "bool", "true", "false", "main",
-};
 
 std::string upper(const std::string& s) {
     std::string r;
@@ -31,139 +25,472 @@ size_t findLabel(const std::vector<IrInstr>& code, size_t from, size_t to, const
     return to;
 }
 
-}  // namespace
-
-std::string cIdentifier(const std::string& name) {
-    return kCKeywords.count(name) ? name + "_" : name;
+std::vector<std::string> deviceNames(const SymbolTable& symbols) {
+    std::vector<std::string> out;
+    for (const Symbol& s : symbols.all())
+        if (s.kind == SymbolKind::Device) out.push_back(s.name);
+    return out;
 }
 
-std::string deviceConstant(const std::string& name) { return "DEV_" + upper(name); }
-
-std::string CodeGenerator::value(const IrValue& v) const {
-    switch (v.kind) {
-        case IrValue::Kind::Temp:   return v.text;
-        case IrValue::Kind::Sensor: return cIdentifier(v.text);
-        case IrValue::Kind::Number: return v.text;
-        case IrValue::Kind::State:  return "STATE_" + v.text;
-        case IrValue::Kind::Bool:   return v.text;
-        case IrValue::Kind::Device: return deviceConstant(v.text);
-        case IrValue::Kind::None:   return "";
+// The pair of states a STATE sensor is compared with (for Arduino's HIGH/LOW mapping).
+std::pair<std::string, std::string> statePair(const std::vector<IrInstr>& code, const std::string& sensor) {
+    for (const IrInstr& in : code) {
+        if (in.op != IrOp::Binary) continue;
+        const IrValue* lit = nullptr;
+        if (in.a.kind == IrValue::Kind::Sensor && in.a.text == sensor && in.b.kind == IrValue::Kind::State) lit = &in.b;
+        if (in.b.kind == IrValue::Kind::Sensor && in.b.text == sensor && in.a.kind == IrValue::Kind::State) lit = &in.a;
+        if (!lit) continue;
+        if (lit->text == "OPEN" || lit->text == "CLOSED") return {"OPEN", "CLOSED"};
+        if (lit->text == "TRUE" || lit->text == "FALSE") return {"TRUE", "FALSE"};
+        return {"ON", "OFF"};
     }
-    return "";
+    return {"ON", "OFF"};
 }
 
-void CodeGenerator::emitRange(const std::vector<IrInstr>& code, size_t from, size_t to, int indent,
-                              const std::string& exitLabel) {
-    for (size_t i = from; i < to; ++i) {
-        const IrInstr& in = code[i];
-        const std::string type = in.numeric ? "double " : "bool ";
-        switch (in.op) {
-            case IrOp::Rule:
-                out_ += "\n" + line(indent) + "/* Rule " + std::to_string(in.rule) + " (source line " +
-                        std::to_string(in.line) + ") */\n";
-                break;
+const std::set<std::string> kRuntimeNames = {
+    "read_number", "read_state", "turn_on", "turn_off", "toggle", "set_level", "evaluate_rules",
+    "evaluateRules", "run", "main", "setup", "loop", "readNumber", "readState",
+};
 
-            case IrOp::Binary: {
-                std::string op = in.oper == "AND" ? "&&" : in.oper == "OR" ? "||" : in.oper;
-                out_ += line(indent) + type + in.dest + " = " + value(in.a) + " " + op + " " + value(in.b) + ";\n";
-                break;
+std::set<std::string> withRuntime(std::set<std::string> words) {
+    words.insert(kRuntimeNames.begin(), kRuntimeNames.end());
+    return words;
+}
+
+// ---------- C --------------------------------------------------------------------
+
+class CTarget : public Target {
+public:
+    std::string id() const override { return "c"; }
+    std::string name() const override { return "C"; }
+    std::string fileName() const override { return "program.c"; }
+    const std::set<std::string>& reserved() const override {
+        static const std::set<std::string> words = withRuntime({
+            "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum",
+            "extern", "float", "for", "goto", "if", "inline", "int", "long", "register", "restrict", "return",
+            "short", "signed", "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void",
+            "volatile", "while", "bool", "true", "false", "state_t", "iot_device_names", "iot_device_count"});
+        return words;
+    }
+    std::string assign(const std::string& t, bool numeric, const std::string& e) const override {
+        return std::string(numeric ? "double " : "bool ") + t + " = " + e + ";";
+    }
+    std::string ifOpen(const std::string& c) const override { return "if (" + c + ") {"; }
+    std::string elseLine() const override { return "} else {"; }
+    std::string blockClose() const override { return "}"; }
+    std::string call(const std::string& f, const std::vector<std::string>& args) const override {
+        std::string s = f + "(";
+        for (size_t i = 0; i < args.size(); ++i) s += (i ? ", " : "") + args[i];
+        return s + ");";
+    }
+    std::string comment(const std::string& t) const override { return "/* " + t + " */"; }
+    std::string gotoStmt(const std::string& l) const override { return "goto " + l + ";"; }
+    std::string labelStmt(const std::string& l) const override { return l + ":;"; }
+
+    void prologue(Emitter& out, const std::vector<IrInstr>&, const SymbolTable& symbols,
+                  const std::set<std::string>& used, const std::string& src) const override {
+        out.line(0, "/*");
+        out.line(0, " * Generated by iotc from " + src + ". Do not edit by hand.");
+        out.line(0, " * Build: cc -std=c99 -Iruntime program.c runtime/iot_runtime.c -o program");
+        out.line(0, " * Run:   ./program temperature=32 door=OPEN");
+        out.line(0, " */");
+        out.blank();
+        out.line(0, "#include \"iot_runtime.h\"");
+        out.blank();
+        out.line(0, "/* Devices */");
+        std::vector<std::string> devices = deviceNames(symbols);
+        if (devices.empty()) {
+            out.line(0, "const char *const iot_device_names[] = { \"\" };");
+            out.line(0, "const int iot_device_count = 0;");
+        } else {
+            std::string e = "enum {", n = "const char *const iot_device_names[] = {";
+            for (size_t i = 0; i < devices.size(); ++i) {
+                e += (i ? ", " : " ") + device(devices[i]);
+                n += (i ? ", " : " ") + ("\"" + devices[i] + "\"");
             }
-            case IrOp::Not:
-                out_ += line(indent) + "bool " + in.dest + " = !" + value(in.a) + ";\n";
-                break;
-            case IrOp::Neg:
-                out_ += line(indent) + "double " + in.dest + " = -" + value(in.a) + ";\n";
-                break;
-            case IrOp::Copy:
-                out_ += line(indent) + type + in.dest + " = " + value(in.a) + ";\n";
-                break;
+            out.line(0, e + " };");
+            out.line(0, n + " };");
+            out.line(0, "const int iot_device_count = " + std::to_string(devices.size()) + ";");
+        }
+        out.blank();
+        out.line(0, "void evaluate_rules(void)");
+        out.line(0, "{");
+        out.line(1, "/* Read every sensor once, so all rules see the same snapshot */");
+        bool any = false;
+        for (const Symbol& s : symbols.all()) {
+            if (s.kind != SymbolKind::Sensor || !used.count(s.name)) continue;
+            any = true;
+            out.line(1, s.type == ValueType::Number
+                            ? "double " + identifier(s.name) + " = read_number(\"" + s.name + "\");"
+                            : "state_t " + identifier(s.name) + " = read_state(\"" + s.name + "\");");
+        }
+        if (!any) out.line(1, "/* (no sensors are needed) */");
+    }
+    void epilogue(Emitter& out, const SymbolTable&) const override { out.line(0, "}"); }
+};
 
-            case IrOp::Call: {
-                std::string s = line(indent) + in.callee + "(";
-                for (size_t k = 0; k < in.args.size(); ++k) s += (k ? ", " : "") + value(in.args[k]);
-                out_ += s + ");\n";
-                break;
+// ---------- Arduino / ESP32 ------------------------------------------------------
+
+class ArduinoTarget : public CTarget {
+public:
+    std::string id() const override { return "arduino"; }
+    std::string name() const override { return "Arduino"; }
+    std::string fileName() const override { return "program.ino"; }
+    std::string device(const std::string& n) const override { return "PIN_" + upper(n); }
+    std::string comment(const std::string& t) const override { return "// " + t; }
+    const std::set<std::string>& reserved() const override {
+        static const std::set<std::string> words = [] {
+            std::set<std::string> w = CTarget().reserved();
+            for (const char* n : {"HIGH", "LOW", "INPUT", "OUTPUT", "delay", "millis", "Serial", "pinMode",
+                                  "digitalRead", "digitalWrite", "analogRead", "analogWrite", "constrain",
+                                  "map", "min", "max", "abs", "State", "String", "byte", "word"})
+                w.insert(n);
+            return w;
+        }();
+        return words;
+    }
+
+    void prologue(Emitter& out, const std::vector<IrInstr>& code, const SymbolTable& symbols,
+                  const std::set<std::string>& used, const std::string& src) const override {
+        out.line(0, "// Generated by iotc from " + src + ". Do not edit by hand.");
+        out.line(0, "// Arduino / ESP32 sketch: connect each sensor and device to the pin below,");
+        out.line(0, "// then adapt readNumber() and readState() to your hardware.");
+        out.blank();
+        out.line(0, "enum State { STATE_UNKNOWN, STATE_ON, STATE_OFF, STATE_OPEN, STATE_CLOSED, STATE_TRUE, STATE_FALSE };");
+        out.blank();
+        int analog = 0, digital = 2;
+        out.line(0, "// Sensor pins");
+        for (const Symbol& s : symbols.all())
+            if (s.kind == SymbolKind::Sensor)
+                out.line(0, "const int " + device(s.name) + " = " +
+                                (s.type == ValueType::Number ? "A" + std::to_string(analog++)
+                                                             : std::to_string(digital++)) +
+                                ";   // " + valueTypeName(s.type));
+        out.line(0, "// Device pins (use PWM-capable pins for set_level)");
+        for (const std::string& d : deviceNames(symbols))
+            out.line(0, "const int " + device(d) + " = " + std::to_string(digital++) + ";");
+        out.blank();
+        out.line(0, "double readNumber(int pin) {");
+        out.line(1, "return analogRead(pin);   // raw 0-1023: convert to real units for your sensor");
+        out.line(0, "}");
+        out.line(0, "State readState(int pin, State high, State low) {");
+        out.line(1, "return digitalRead(pin) == HIGH ? high : low;");
+        out.line(0, "}");
+        out.line(0, "void turn_on(int pin) { digitalWrite(pin, HIGH); }");
+        out.line(0, "void turn_off(int pin) { digitalWrite(pin, LOW); }");
+        out.line(0, "void toggle(int pin) { digitalWrite(pin, !digitalRead(pin)); }");
+        out.line(0, "void set_level(int pin, double level) { analogWrite(pin, (int)(constrain(level, 0, 100) * 255 / 100)); }");
+        out.blank();
+        out.line(0, "void evaluateRules() {");
+        out.line(1, "// Read every sensor once, so all rules see the same snapshot");
+        for (const Symbol& s : symbols.all()) {
+            if (s.kind != SymbolKind::Sensor || !used.count(s.name)) continue;
+            if (s.type == ValueType::Number) {
+                out.line(1, "double " + identifier(s.name) + " = readNumber(" + device(s.name) + ");");
+            } else {
+                auto p = statePair(code, s.name);
+                out.line(1, "State " + identifier(s.name) + " = readState(" + device(s.name) + ", " +
+                                state(p.first) + ", " + state(p.second) + ");");
             }
-
-            case IrOp::IfFalse: {
-                std::string cond = value(in.a);
-                // IF_FALSE c GOTO <end of this range>:   if (c) { rest of range }
-                if (in.label == exitLabel) {
-                    out_ += line(indent) + "if (" + cond + ") {\n";
-                    emitRange(code, i + 1, to, indent + 1, exitLabel);
-                    out_ += line(indent) + "}\n";
-                    i = to;
-                    break;
-                }
-                size_t elseAt = findLabel(code, i + 1, to, in.label);
-                if (elseAt == to) {   // not a shape we know: fall back to a goto
-                    out_ += line(indent) + "if (!" + cond + ") goto " + in.label + ";\n";
-                    break;
-                }
-                // Then-part ends with GOTO E?  Then the code after L1 is the ELSE part,
-                // running up to label E (or to the end of this range if E is our exit).
-                if (elseAt > i + 1 && code[elseAt - 1].op == IrOp::Goto) {
-                    const std::string& e = code[elseAt - 1].label;
-                    size_t endAt = e == exitLabel ? to : findLabel(code, elseAt + 1, to, e);
-                    if (endAt != to || e == exitLabel) {
-                        out_ += line(indent) + "if (" + cond + ") {\n";
-                        emitRange(code, i + 1, elseAt - 1, indent + 1, e);
-                        out_ += line(indent) + "} else {\n";
-                        emitRange(code, elseAt + 1, endAt, indent + 1, e);
-                        out_ += line(indent) + "}\n";
-                        i = endAt;   // skips label E
-                        break;
-                    }
-                }
-                out_ += line(indent) + "if (" + cond + ") {\n";
-                emitRange(code, i + 1, elseAt, indent + 1, in.label);
-                out_ += line(indent) + "}\n";
-                i = elseAt;   // skips label L1
-                break;
-            }
-
-            case IrOp::Goto:
-                if (in.label == exitLabel && i + 1 == to) break;   // leaving the range: nothing to do
-                out_ += line(indent) + "goto " + in.label + ";\n";
-                break;
-            case IrOp::Label:
-                out_ += in.label + ":;\n";
-                break;
         }
     }
-}
+    void epilogue(Emitter& out, const SymbolTable& symbols) const override {
+        out.line(0, "}");
+        out.blank();
+        out.line(0, "void setup() {");
+        out.line(1, "Serial.begin(115200);");
+        for (const Symbol& s : symbols.all())
+            if (s.kind == SymbolKind::Sensor && s.type == ValueType::State)
+                out.line(1, "pinMode(" + device(s.name) + ", INPUT);");
+        for (const std::string& d : deviceNames(symbols)) out.line(1, "pinMode(" + device(d) + ", OUTPUT);");
+        out.line(0, "}");
+        out.blank();
+        out.line(0, "void loop() {");
+        out.line(1, "evaluateRules();");
+        out.line(1, "delay(1000);   // evaluate the rules once per second");
+        out.line(0, "}");
+    }
+};
 
-std::string CodeGenerator::generate(const std::vector<IrInstr>& code, const SymbolTable& symbols,
-                                    const std::string& sourceName) {
-    out_.clear();
-    out_ += "/*\n * Generated by iotc from " + sourceName + ". Do not edit by hand.\n"
-            " * Build: cc -std=c99 -Iruntime program.c runtime/iot_runtime.c -o program\n"
-            " * Run:   ./program temperature=32 door=OPEN\n */\n\n";
-    out_ += "#include \"iot_runtime.h\"\n\n";
+// ---------- Python -----------------------------------------------------------------
 
-    // Device table
-    std::vector<std::string> devices;
-    for (const Symbol& s : symbols.all())
-        if (s.kind == SymbolKind::Device) devices.push_back(s.name);
+class PythonTarget : public Target {
+public:
+    std::string id() const override { return "python"; }
+    std::string name() const override { return "Python"; }
+    std::string fileName() const override { return "program.py"; }
+    const std::set<std::string>& reserved() const override {
+        static const std::set<std::string> words = withRuntime({
+            "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
+            "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in",
+            "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with",
+            "yield", "print", "DEVICE_NAMES"});
+        return words;
+    }
+    std::string boolean(bool b) const override { return b ? "True" : "False"; }
+    std::string op(const std::string& o) const override {
+        if (o == "AND") return "and";
+        if (o == "OR") return "or";
+        return o;
+    }
+    std::string notExpr(const std::string& a) const override { return "not " + a; }
+    std::string assign(const std::string& t, bool, const std::string& e) const override { return t + " = " + e; }
+    std::string ifOpen(const std::string& c) const override { return "if " + c + ":"; }
+    std::string elseLine() const override { return "else:"; }
+    std::string blockClose() const override { return ""; }
+    std::string emptyBody() const override { return "pass"; }
+    std::string call(const std::string& f, const std::vector<std::string>& args) const override {
+        std::string s = f + "(";
+        for (size_t i = 0; i < args.size(); ++i) s += (i ? ", " : "") + args[i];
+        return s + ")";
+    }
+    std::string comment(const std::string& t) const override { return "# " + t; }
+    std::string gotoStmt(const std::string& l) const override { return "pass  # goto " + l + " (unsupported)"; }
+    std::string labelStmt(const std::string& l) const override { return "# " + l + ":"; }
 
-    out_ += "/* Devices */\n";
-    if (devices.empty()) {
-        out_ += "const char *const iot_device_names[] = { \"\" };\nconst int iot_device_count = 0;\n";
-    } else {
-        out_ += "enum {";
-        for (size_t i = 0; i < devices.size(); ++i)
-            out_ += (i ? ", " : " ") + deviceConstant(devices[i]);
-        out_ += " };\n";
-        out_ += "const char *const iot_device_names[] = {";
-        for (size_t i = 0; i < devices.size(); ++i) out_ += (i ? ", " : " ") + ("\"" + devices[i] + "\"");
-        out_ += " };\n";
-        out_ += "const int iot_device_count = " + std::to_string(devices.size()) + ";\n";
+    void prologue(Emitter& out, const std::vector<IrInstr>&, const SymbolTable& symbols,
+                  const std::set<std::string>& used, const std::string& src) const override {
+        out.line(0, "# Generated by iotc from " + src + ". Do not edit by hand.");
+        out.line(0, "# Run: python3 program.py temperature=32 door=OPEN   (needs runtime/iot_runtime.py)");
+        out.line(0, "from iot_runtime import *");
+        out.blank();
+        out.line(0, "# Devices");
+        std::vector<std::string> devices = deviceNames(symbols);
+        std::string names = "DEVICE_NAMES = [";
+        for (size_t i = 0; i < devices.size(); ++i) {
+            out.line(0, device(devices[i]) + " = " + std::to_string(i));
+            names += (i ? ", " : "") + ("\"" + devices[i] + "\"");
+        }
+        out.line(0, names + "]");
+        out.blank();
+        out.blank();
+        out.line(0, "def evaluate_rules():");
+        out.line(1, "# Read every sensor once, so all rules see the same snapshot");
+        for (const Symbol& s : symbols.all()) {
+            if (s.kind != SymbolKind::Sensor || !used.count(s.name)) continue;
+            out.line(1, identifier(s.name) + (s.type == ValueType::Number ? " = read_number(\"" : " = read_state(\"") +
+                            s.name + "\")");
+        }
+    }
+    void epilogue(Emitter& out, const SymbolTable&) const override {
+        // A function body needs at least one statement (comments don't count).
+        bool statement = false;
+        for (auto it = out.lines().rbegin(); it != out.lines().rend(); ++it) {
+            std::string t = it->text;
+            t.erase(0, t.find_first_not_of(' '));
+            if (t.rfind("def ", 0) == 0) break;
+            if (!t.empty() && t[0] != '#') { statement = true; break; }
+        }
+        if (!statement) out.line(1, "pass");
+        out.blank();
+        out.blank();
+        out.line(0, "if __name__ == \"__main__\":");
+        out.line(1, "run(evaluate_rules, DEVICE_NAMES)");
+    }
+};
+
+// ---------- JavaScript -------------------------------------------------------------
+
+class JsTarget : public CTarget {
+public:
+    std::string id() const override { return "js"; }
+    std::string name() const override { return "JavaScript"; }
+    std::string fileName() const override { return "program.js"; }
+    const std::set<std::string>& reserved() const override {
+        static const std::set<std::string> words = withRuntime({
+            "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do",
+            "else", "export", "extends", "finally", "for", "function", "if", "import", "in", "instanceof",
+            "new", "return", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while",
+            "with", "yield", "let", "static", "enum", "await", "implements", "package", "protected",
+            "interface", "private", "public", "null", "true", "false", "undefined", "NaN", "Infinity", "eval",
+            "arguments", "require", "module", "exports", "DEVICE_NAMES"});
+        return words;
+    }
+    std::string op(const std::string& o) const override {
+        if (o == "==") return "===";
+        if (o == "!=") return "!==";
+        return Target::op(o);
+    }
+    std::string assign(const std::string& t, bool, const std::string& e) const override {
+        return "const " + t + " = " + e + ";";
+    }
+    std::string comment(const std::string& t) const override { return "// " + t; }
+    std::string gotoStmt(const std::string& l) const override { return "/* goto " + l + " (unsupported) */"; }
+    std::string labelStmt(const std::string& l) const override { return "/* " + l + ": */"; }
+
+    void prologue(Emitter& out, const std::vector<IrInstr>&, const SymbolTable& symbols,
+                  const std::set<std::string>& used, const std::string& src) const override {
+        out.line(0, "// Generated by iotc from " + src + ". Do not edit by hand.");
+        out.line(0, "// Run: node program.js temperature=32 door=OPEN   (needs iot_runtime.js next to it)");
+        out.line(0, "\"use strict\";");
+        out.line(0, "const { STATE_ON, STATE_OFF, STATE_OPEN, STATE_CLOSED, STATE_TRUE, STATE_FALSE,");
+        out.line(0, "        read_number, read_state, turn_on, turn_off, toggle, set_level, run } = require(\"./iot_runtime.js\");");
+        out.blank();
+        out.line(0, "// Devices");
+        std::vector<std::string> devices = deviceNames(symbols);
+        std::string names = "const DEVICE_NAMES = [";
+        for (size_t i = 0; i < devices.size(); ++i) {
+            out.line(0, "const " + device(devices[i]) + " = " + std::to_string(i) + ";");
+            names += (i ? ", " : "") + ("\"" + devices[i] + "\"");
+        }
+        out.line(0, names + "];");
+        out.blank();
+        out.line(0, "function evaluateRules() {");
+        out.line(1, "// Read every sensor once, so all rules see the same snapshot");
+        for (const Symbol& s : symbols.all()) {
+            if (s.kind != SymbolKind::Sensor || !used.count(s.name)) continue;
+            out.line(1, "const " + identifier(s.name) +
+                            (s.type == ValueType::Number ? " = read_number(\"" : " = read_state(\"") + s.name + "\");");
+        }
+    }
+    void epilogue(Emitter& out, const SymbolTable&) const override {
+        out.line(0, "}");
+        out.blank();
+        out.line(0, "module.exports = { evaluateRules, DEVICE_NAMES };");
+        out.line(0, "if (require.main === module) run(evaluateRules, DEVICE_NAMES);");
+    }
+};
+
+// ---------- Structured emitter ----------------------------------------------------
+
+class StructuredEmitter {
+public:
+    StructuredEmitter(const Target& t, const std::vector<IrInstr>& code, Emitter& out)
+        : t_(t), code_(code), out_(out) {}
+
+    void emit(size_t from, size_t to, int indent, const std::string& exitLabel) {
+        for (size_t i = from; i < to; ++i) {
+            const IrInstr& in = code_[i];
+            auto line = [&](int ind, const std::string& text) { out_.line(ind, text, &in, static_cast<int>(i)); };
+            switch (in.op) {
+                case IrOp::Rule:
+                    out_.blank();
+                    line(indent, t_.comment("Rule " + std::to_string(in.rule) + " (source line " +
+                                            std::to_string(in.line) + ")"));
+                    break;
+                case IrOp::Binary:
+                    line(indent, t_.assign(in.dest, in.numeric, value(in.a) + " " + t_.op(in.oper) + " " + value(in.b)));
+                    break;
+                case IrOp::Not:
+                    line(indent, t_.assign(in.dest, false, t_.notExpr(value(in.a))));
+                    break;
+                case IrOp::Neg:
+                    line(indent, t_.assign(in.dest, true, "-(" + value(in.a) + ")"));
+                    break;
+                case IrOp::Copy:
+                    line(indent, t_.assign(in.dest, in.numeric, value(in.a)));
+                    break;
+                case IrOp::Call: {
+                    std::vector<std::string> args;
+                    for (const IrValue& v : in.args) args.push_back(value(v));
+                    line(indent, t_.call(in.callee, args));
+                    break;
+                }
+                case IrOp::IfFalse: {
+                    std::string cond = value(in.a);
+                    // IF_FALSE c GOTO <end of this range>:  if (c) { rest of range }
+                    if (in.label == exitLabel) {
+                        line(indent, t_.ifOpen(cond));
+                        body(i + 1, to, indent + 1, exitLabel);
+                        close(indent, in, i);
+                        i = to;
+                        break;
+                    }
+                    size_t elseAt = findLabel(code_, i + 1, to, in.label);
+                    if (elseAt == to) {   // unknown shape: fall back to a jump
+                        line(indent, t_.ifOpen(t_.notExpr(cond)));
+                        line(indent + 1, t_.gotoStmt(in.label));
+                        close(indent, in, i);
+                        break;
+                    }
+                    // Then-part ends with GOTO E: the code after the else label is the ELSE part,
+                    // running up to label E (or to the end of this range if E is our exit).
+                    if (elseAt > i + 1 && code_[elseAt - 1].op == IrOp::Goto) {
+                        const std::string& e = code_[elseAt - 1].label;
+                        size_t endAt = e == exitLabel ? to : findLabel(code_, elseAt + 1, to, e);
+                        if (endAt != to || e == exitLabel) {
+                            line(indent, t_.ifOpen(cond));
+                            body(i + 1, elseAt - 1, indent + 1, e);
+                            line(indent, t_.elseLine());
+                            body(elseAt + 1, endAt, indent + 1, e);
+                            close(indent, in, i);
+                            i = endAt;   // skips label E
+                            break;
+                        }
+                    }
+                    line(indent, t_.ifOpen(cond));
+                    body(i + 1, elseAt, indent + 1, in.label);
+                    close(indent, in, i);
+                    i = elseAt;   // skips the label
+                    break;
+                }
+                case IrOp::Goto:
+                    if (in.label == exitLabel && i + 1 == to) break;   // leaving the block: nothing to do
+                    line(indent, t_.gotoStmt(in.label));
+                    break;
+                case IrOp::Label:
+                    line(0, t_.labelStmt(in.label));
+                    break;
+            }
+        }
     }
 
-    // Only read the sensors the optimized code still uses (avoids unused-variable warnings).
-    std::set<std::string> usedSensors;
+private:
+    void body(size_t from, size_t to, int indent, const std::string& exitLabel) {
+        size_t before = out_.size();
+        emit(from, to, indent, exitLabel);
+        if (out_.size() == before && !t_.emptyBody().empty()) out_.line(indent, t_.emptyBody());
+    }
+    void close(int indent, const IrInstr& in, size_t i) {
+        if (!t_.blockClose().empty()) out_.line(indent, t_.blockClose(), &in, static_cast<int>(i));
+    }
+    std::string value(const IrValue& v) const {
+        switch (v.kind) {
+            case IrValue::Kind::Temp:   return v.text;
+            case IrValue::Kind::Sensor: return t_.identifier(v.text);
+            case IrValue::Kind::Number: return v.text;
+            case IrValue::Kind::State:  return t_.state(v.text);
+            case IrValue::Kind::Bool:   return t_.boolean(v.text == "true");
+            case IrValue::Kind::Device: return t_.device(v.text);
+            case IrValue::Kind::None:   return "";
+        }
+        return "";
+    }
+
+    const Target& t_;
+    const std::vector<IrInstr>& code_;
+    Emitter& out_;
+};
+
+}  // namespace
+
+// ---------- Target defaults and public API -------------------------------------------
+
+std::string Target::identifier(const std::string& n) const { return reserved().count(n) ? n + "_" : n; }
+std::string Target::device(const std::string& n) const { return "DEV_" + upper(n); }
+std::string Target::op(const std::string& o) const {
+    if (o == "AND") return "&&";
+    if (o == "OR") return "||";
+    return o;
+}
+
+void Emitter::line(int indent, const std::string& text, const IrInstr* from, int irIndex) {
+    GeneratedLine l;
+    l.text = text.empty() ? "" : std::string(static_cast<size_t>(indent) * 4, ' ') + text;
+    l.ir = irIndex;
+    if (from) {
+        l.srcStart = from->srcStart;
+        l.srcEnd = from->srcEnd;
+    }
+    lines_.push_back(l);
+}
+
+GeneratedCode generateCode(const std::vector<IrInstr>& code, const SymbolTable& symbols,
+                           const std::string& sourceName, const Target& target) {
+    // Only read the sensors the optimized code still uses (avoids unused variables).
+    std::set<std::string> used;
     for (const IrInstr& in : code) {
-        auto note = [&](const IrValue& v) { if (v.kind == IrValue::Kind::Sensor) usedSensors.insert(v.text); };
+        auto note = [&](const IrValue& v) { if (v.kind == IrValue::Kind::Sensor) used.insert(v.text); };
         if (in.op == IrOp::Binary || in.op == IrOp::Not || in.op == IrOp::Neg || in.op == IrOp::Copy ||
             in.op == IrOp::IfFalse) {
             note(in.a);
@@ -172,20 +499,37 @@ std::string CodeGenerator::generate(const std::vector<IrInstr>& code, const Symb
         for (const IrValue& v : in.args) note(v);
     }
 
-    out_ += "\nvoid evaluate_rules(void)\n{\n";
-    out_ += "    /* Read every sensor once, so all rules see the same snapshot */\n";
-    bool anySensor = false;
-    for (const Symbol& s : symbols.all()) {
-        if (s.kind != SymbolKind::Sensor || !usedSensors.count(s.name)) continue;
-        anySensor = true;
-        if (s.type == ValueType::Number)
-            out_ += "    double " + cIdentifier(s.name) + " = read_number(\"" + s.name + "\");\n";
-        else
-            out_ += "    state_t " + cIdentifier(s.name) + " = read_state(\"" + s.name + "\");\n";
-    }
-    if (!anySensor) out_ += "    /* (no sensors are needed) */\n";
+    Emitter out;
+    target.prologue(out, code, symbols, used, sourceName);
+    StructuredEmitter(target, code, out).emit(0, code.size(), 1, "");
+    target.epilogue(out, symbols);
 
-    emitRange(code, 0, code.size(), 1, "");
-    out_ += "}\n";
-    return out_;
+    GeneratedCode g;
+    g.target = target.id();
+    g.name = target.name();
+    g.fileName = target.fileName();
+    g.lines = out.lines();
+    for (const GeneratedLine& l : g.lines) g.code += l.text + "\n";
+    return g;
 }
+
+const std::vector<std::unique_ptr<Target>>& allTargets() {
+    static const std::vector<std::unique_ptr<Target>> targets = [] {
+        std::vector<std::unique_ptr<Target>> v;
+        v.push_back(std::make_unique<CTarget>());
+        v.push_back(std::make_unique<ArduinoTarget>());
+        v.push_back(std::make_unique<PythonTarget>());
+        v.push_back(std::make_unique<JsTarget>());
+        return v;
+    }();
+    return targets;
+}
+
+const Target* findTarget(const std::string& id) {
+    for (const auto& t : allTargets())
+        if (t->id() == id) return t.get();
+    return nullptr;
+}
+
+std::string cIdentifier(const std::string& name) { return findTarget("c")->identifier(name); }
+std::string deviceConstant(const std::string& name) { return "DEV_" + upper(name); }

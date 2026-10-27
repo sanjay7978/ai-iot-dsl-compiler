@@ -67,6 +67,14 @@ private:
     void error(const Node& at, const std::string& msg);
     void warning(const Node& at, const std::string& msg);
     std::string suggest(const std::string& name, SymbolKind kind) const;
+    std::string bestMatch(const std::string& name, SymbolKind kind) const;
+    void addFix(const Fix& f) { diags_.back().fixes.push_back(f); }
+    Fix declareFix(const std::string& text, const std::string& title) const;
+    void fixUndeclared(const Operand& op, SymbolKind kind, const std::string& sensorType = "NUMBER");
+    void retypeSensorFix(const Operand& op, const std::string& type);
+
+    Pos declEnd_;            // end of the last declaration (where new ones are inserted)
+    bool hasDecl_ = false;
 
     SymbolTable* table_ = nullptr;
     std::vector<Diagnostic> diags_;

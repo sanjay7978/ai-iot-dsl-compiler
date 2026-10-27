@@ -2,6 +2,9 @@
 
 #include "json.h"
 
+#include "grammar.h"
+#include "lexer.h"
+
 #include <cstdio>
 #include <sstream>
 
@@ -58,7 +61,9 @@ void writeIr(const std::vector<IrInstr>& code, std::ostringstream& out) {
         out << "{\"op\":" << quote(irOpName(in.op))
             << ",\"text\":" << quote(irToString(in))
             << ",\"rule\":" << in.rule
-            << ",\"numeric\":" << (in.numeric ? "true" : "false");
+            << ",\"numeric\":" << (in.numeric ? "true" : "false")
+            << ",\"src\":[" << in.srcStart.line << "," << in.srcStart.col << "," << in.srcEnd.line << ","
+            << in.srcEnd.col << "]";
         switch (in.op) {
             case IrOp::Binary:
                 out << ",\"dest\":" << quote(in.dest) << ",\"oper\":" << quote(in.oper)
@@ -92,7 +97,7 @@ void writeIr(const std::vector<IrInstr>& code, std::ostringstream& out) {
 
 }  // namespace
 
-std::string toJson(const CompileResult& r) {
+std::string toJson(const CompileResult& r, bool trace) {
     std::ostringstream out;
     out << "{\"success\":" << (r.errorCount() == 0 ? "true" : "false");
 
@@ -167,6 +172,49 @@ std::string toJson(const CompileResult& r) {
 
     out << ",\"cCode\":" << quote(r.cCode);
 
+    out << ",\"targets\":[";
+    for (size_t i = 0; i < r.targets.size(); ++i) {
+        const GeneratedCode& g = r.targets[i];
+        out << (i ? "," : "") << "{\"id\":" << quote(g.target) << ",\"name\":" << quote(g.name)
+            << ",\"fileName\":" << quote(g.fileName) << ",\"code\":" << quote(g.code) << ",\"lines\":[";
+        for (size_t k = 0; k < g.lines.size(); ++k) {
+            const GeneratedLine& l = g.lines[k];
+            out << (k ? "," : "") << "[" << l.ir << "," << l.srcStart.line << "," << l.srcStart.col << ","
+                << l.srcEnd.line << "," << l.srcEnd.col << "]";
+        }
+        out << "]}";
+    }
+    out << "]";
+
+    out << ",\"english\":[";
+    for (size_t i = 0; i < r.english.size(); ++i) out << (i ? "," : "") << quote(r.english[i]);
+    out << "]";
+
+    out << ",\"optTrace\":[";
+    for (size_t i = 0; i < r.optimization.trace.size(); ++i) {
+        const OptSnapshot& snap = r.optimization.trace[i];
+        out << (i ? "," : "") << "{\"pass\":" << quote(snap.pass) << ",\"round\":" << snap.round
+            << ",\"count\":" << irInstructionCount(snap.code) << ",\"code\":";
+        writeIr(snap.code, out);
+        out << "}";
+    }
+    out << "]";
+
+    if (trace) {
+        out << ",\"lexTrace\":[";
+        for (size_t i = 0; i < r.lexTrace.size(); ++i) {
+            const LexStep& st = r.lexTrace[i];
+            out << (i ? "," : "") << "[" << st.offset << "," << quote(st.from) << "," << quote(st.to) << "]";
+        }
+        out << "],\"parseTrace\":[";
+        for (size_t i = 0; i < r.parseTrace.size(); ++i) {
+            const ParseEvent& e = r.parseTrace[i];
+            out << (i ? "," : "") << "[" << quote(e.kind) << "," << quote(e.name) << "," << e.token << ","
+                << e.depth << "]";
+        }
+        out << "]";
+    }
+
     out << ",\"errors\":[";
     for (size_t i = 0; i < r.diagnostics.size(); ++i) {
         const Diagnostic& d = r.diagnostics[i];
@@ -176,7 +224,13 @@ std::string toJson(const CompileResult& r) {
             << ",\"line\":" << d.line
             << ",\"col\":" << d.col
             << ",\"length\":" << d.length
-            << ",\"message\":" << quote(d.message) << "}";
+            << ",\"message\":" << quote(d.message) << ",\"fixes\":[";
+        for (size_t k = 0; k < d.fixes.size(); ++k) {
+            const Fix& f = d.fixes[k];
+            out << (k ? "," : "") << "{\"title\":" << quote(f.title) << ",\"line\":" << f.line
+                << ",\"col\":" << f.col << ",\"length\":" << f.length << ",\"text\":" << quote(f.text) << "}";
+        }
+        out << "]}";
     }
     out << "]";
 
@@ -190,5 +244,59 @@ std::string toJson(const CompileResult& r) {
         << ",\"irBefore\":" << r.optimization.before
         << ",\"irAfter\":" << r.optimization.after
         << ",\"timeMs\":" << ms << "}}";
+    return out.str();
+}
+
+// Static description of the language: the scanner's DFA and the grammar analysis.
+std::string languageJson() {
+    std::ostringstream out;
+    const LexerDfa& dfa = lexerDfa();
+    out << "{\"dfa\":{\"states\":[";
+    for (size_t i = 0; i < dfa.states.size(); ++i)
+        out << (i ? "," : "") << "{\"id\":" << quote(dfa.states[i].id) << ",\"label\":" << quote(dfa.states[i].label)
+            << ",\"accepting\":" << (dfa.states[i].accepting ? "true" : "false") << "}";
+    out << "],\"edges\":[";
+    for (size_t i = 0; i < dfa.edges.size(); ++i)
+        out << (i ? "," : "") << "[" << quote(dfa.edges[i].from) << "," << quote(dfa.edges[i].to) << ","
+            << quote(dfa.edges[i].label) << "]";
+    out << "]}";
+
+    const GrammarAnalysis& g = grammarAnalysis();
+    auto strings = [&](const std::vector<std::string>& v) {
+        std::string t = "[";
+        for (size_t i = 0; i < v.size(); ++i) t += (i ? "," : "") + quote(v[i]);
+        return t + "]";
+    };
+    auto set = [&](const std::set<std::string>& s) {
+        std::vector<std::string> v;
+        for (const std::string& x : s) v.push_back(x.empty() ? "ε" : x);
+        return strings(v);
+    };
+    out << ",\"grammar\":{\"productions\":[";
+    for (size_t i = 0; i < g.productions.size(); ++i)
+        out << (i ? "," : "") << "{\"lhs\":" << quote(g.productions[i].lhs) << ",\"rhs\":"
+            << strings(g.productions[i].rhs) << "}";
+    out << "],\"nonterminals\":" << strings(g.nonterminals) << ",\"terminals\":" << strings(g.terminals);
+    out << ",\"first\":{";
+    for (size_t i = 0; i < g.nonterminals.size(); ++i)
+        out << (i ? "," : "") << quote(g.nonterminals[i]) << ":" << set(g.first.at(g.nonterminals[i]));
+    out << "},\"follow\":{";
+    for (size_t i = 0; i < g.nonterminals.size(); ++i)
+        out << (i ? "," : "") << quote(g.nonterminals[i]) << ":" << set(g.follow.at(g.nonterminals[i]));
+    out << "},\"table\":[";
+    bool first = true;
+    for (const auto& row : g.table)
+        for (const auto& cell : row.second)
+            for (int p : cell.second) {
+                out << (first ? "" : ",") << "[" << quote(row.first) << "," << quote(cell.first) << "," << p << "]";
+                first = false;
+            }
+    out << "],\"conflicts\":" << strings(g.conflicts) << ",\"functions\":{";
+    first = true;
+    for (const auto& f : g.parserFunction) {
+        out << (first ? "" : ",") << quote(f.first) << ":" << quote(f.second);
+        first = false;
+    }
+    out << "}}}";
     return out.str();
 }

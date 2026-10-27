@@ -2,6 +2,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 enum class TokenType {
     // Keywords
@@ -36,6 +37,16 @@ struct Pos {
     int col = 0;
 };
 
+// A suggested edit that repairs a problem (like an IDE "quick fix"):
+// replace `length` characters at line:col with `text` (length 0 = insert).
+struct Fix {
+    std::string title;
+    int line;
+    int col;
+    int length;
+    std::string text;
+};
+
 // One error or warning produced by any compiler phase.
 struct Diagnostic {
     std::string phase;    // "lexical", "syntax" or "semantic"
@@ -44,6 +55,7 @@ struct Diagnostic {
     int length;
     std::string message;
     std::string severity = "error";   // "error" or "warning"
+    std::vector<Fix> fixes = {};       // suggested repairs (may be empty)
 };
 
 // Name printed in the token table, e.g. "IF", "IDENTIFIER", "GT".

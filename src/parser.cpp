@@ -15,11 +15,16 @@ std::string describe(const Token& t) {
     return "'" + t.lexeme + "'";
 }
 
+std::string upperCase(const std::string& s) {
+    std::string upper;
+    for (char c : s) upper += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return upper;
+}
+
 // If `t` is a lowercase spelling of a keyword (e.g. "if"), returns a hint.
 std::string keywordCaseHint(const Token& t) {
     if (t.type != TokenType::IDENTIFIER) return "";
-    std::string upper;
-    for (char c : t.lexeme) upper += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    std::string upper = upperCase(t.lexeme);
     TokenType kw;
     if (upper != t.lexeme && lookupKeyword(upper, kw))
         return "keywords are uppercase, did you mean '" + upper + "'?";
@@ -47,8 +52,24 @@ Parser::Parser(const std::vector<Token>& tokens) : tokens_(tokens) {}
 // ---------- Token helpers ---------------------------------------------------
 
 const Token& Parser::advance() {
-    if (!check(TokenType::END_OF_FILE)) ++current_;
+    if (!check(TokenType::END_OF_FILE)) {
+        if (trace_ && events_.size() < kMaxTraceEvents)
+            events_.push_back(ParseEvent{"token", tokens_[current_].lexeme, static_cast<int>(current_), depth_});
+        ++current_;
+    }
     return previous();
+}
+
+Parser::Scope::Scope(Parser& p, const char* name) : parser(p), rule(name) {
+    if (p.trace_ && p.events_.size() < kMaxTraceEvents)
+        p.events_.push_back(ParseEvent{"enter", name, static_cast<int>(p.current_), p.depth_});
+    ++p.depth_;
+}
+
+Parser::Scope::~Scope() {
+    --parser.depth_;
+    if (parser.trace_ && parser.events_.size() < kMaxTraceEvents)
+        parser.events_.push_back(ParseEvent{"exit", rule, static_cast<int>(parser.current_), parser.depth_});
 }
 
 bool Parser::match(TokenType t) {
@@ -59,16 +80,32 @@ bool Parser::match(TokenType t) {
 
 const Token& Parser::expect(TokenType t, const std::string& what) {
     if (check(t)) return advance();
+    // A missing THEN or ')' can be repaired by inserting it.
+    if (t == TokenType::THEN) {
+        const Token& at = peek();
+        if (at.type == TokenType::END_OF_FILE) fail(what, "", insertAfterPrevious(" THEN", "Insert 'THEN'"));
+        fail(what, "", Fix{"Insert 'THEN'", at.line, at.col, 0, "THEN "});
+    }
+    if (t == TokenType::RPAREN) fail(what, "", insertAfterPrevious(")", "Insert ')'"));
     fail(what);
+}
+
+Fix Parser::insertAfterPrevious(const std::string& text, const std::string& title) const {
+    const Token& p = previous();
+    return Fix{title, p.line, p.col + p.length, 0, text};
 }
 
 // ---------- Error handling --------------------------------------------------
 
-void Parser::fail(const std::string& expected, const std::string& hint) {
+void Parser::fail(const std::string& expected, const std::string& hint, std::optional<Fix> fix) {
     const Token& t = peek();
     std::string msg = "expected " + expected + " but found " + describe(t);
     std::string h = hint.empty() ? keywordCaseHint(t) : hint;
     if (!h.empty()) msg += " (" + h + ")";
+    if (!fix && hint.empty() && !keywordCaseHint(t).empty())
+        fix = Fix{"Change to '" + upperCase(t.lexeme) + "'", t.line, t.col, t.length, upperCase(t.lexeme)};
+    if (trace_ && events_.size() < kMaxTraceEvents)
+        events_.push_back(ParseEvent{"error", expected, static_cast<int>(current_), depth_});
 
     // At end of file, point just after the last real token instead of at an
     // empty line, since that is where the missing token belongs.
@@ -78,6 +115,7 @@ void Parser::fail(const std::string& expected, const std::string& hint) {
     } else {
         errors_.push_back(Diagnostic{"syntax", t.line, t.col, t.length > 0 ? t.length : 1, msg});
     }
+    if (fix) errors_.back().fixes.push_back(*fix);
     throw ParseError{};
 }
 
@@ -90,6 +128,7 @@ void Parser::synchronize() {
 
 // program -> { declaration | rule } EOF
 std::unique_ptr<Program> Parser::parse() {
+    Scope scope(*this, "program");
     auto program = std::make_unique<Program>();
     program->start = startOf(peek());
 
@@ -112,6 +151,7 @@ std::unique_ptr<Program> Parser::parse() {
 
 // declaration -> SENSOR IDENT ':' ( NUMBER | STATE )
 std::unique_ptr<Statement> Parser::parseSensorDecl() {
+    Scope scope(*this, "decl");
     auto decl = std::make_unique<SensorDecl>();
     decl->start = startOf(expect(TokenType::SENSOR, "'SENSOR'"));
 
@@ -137,6 +177,7 @@ std::unique_ptr<Statement> Parser::parseSensorDecl() {
 
 // declaration -> DEVICE IDENT { ',' IDENT }
 std::unique_ptr<Statement> Parser::parseDeviceDecl() {
+    Scope scope(*this, "decl");
     auto decl = std::make_unique<DeviceDecl>();
     decl->start = startOf(expect(TokenType::DEVICE, "'DEVICE'"));
 
@@ -157,6 +198,7 @@ std::unique_ptr<Statement> Parser::parseDeviceDecl() {
 
 // rule -> IF expr THEN actions { ELSE IF expr THEN actions } [ ELSE actions ]
 std::unique_ptr<Statement> Parser::parseRule() {
+    Scope scope(*this, "rule");
     auto rule = std::make_unique<Rule>();
     rule->start = startOf(expect(TokenType::IF, "'IF'"));
 
@@ -190,6 +232,7 @@ std::unique_ptr<Statement> Parser::parseRule() {
 // One or more actions. Actions always start with an identifier, so we keep
 // reading while the next token is an IDENTIFIER.
 std::vector<Action> Parser::parseActionList(const std::string& after) {
+    Scope scope(*this, "actions");
     if (!check(TokenType::IDENTIFIER))
         fail("an action such as turn_on(fan) after '" + after + "'");
 
@@ -200,6 +243,7 @@ std::vector<Action> Parser::parseActionList(const std::string& after) {
 
 // action -> IDENT '(' [ expr { ',' expr } ] ')'
 Action Parser::parseAction() {
+    Scope scope(*this, "action");
     Action action;
     const Token& name = expect(TokenType::IDENTIFIER, "an action name");
     action.name = name.lexeme;
@@ -208,8 +252,13 @@ Action Parser::parseAction() {
     if (!check(TokenType::LPAREN)) {
         // A lowercase keyword ("if") after an action is read as an identifier.
         std::string hint = keywordCaseHint(name);
-        if (!hint.empty()) hint = "'" + name.lexeme + "' was read as an action name; " + hint;
-        fail("'(' after action name '" + name.lexeme + "'", hint);
+        std::optional<Fix> fix;
+        if (!hint.empty()) {
+            hint = "'" + name.lexeme + "' was read as an action name; " + hint;
+            fix = Fix{"Change to '" + upperCase(name.lexeme) + "'", name.line, name.col, name.length,
+                      upperCase(name.lexeme)};
+        }
+        fail("'(' after action name '" + name.lexeme + "'", hint, fix);
     }
     advance();   // '('
 
@@ -217,7 +266,8 @@ Action Parser::parseAction() {
         action.args.push_back(parseExpr());
         while (match(TokenType::COMMA)) action.args.push_back(parseExpr());
     }
-    if (!check(TokenType::RPAREN)) fail("',' or ')' in the argument list of '" + action.name + "'");
+    if (!check(TokenType::RPAREN))
+        fail("',' or ')' in the argument list of '" + action.name + "'", "", insertAfterPrevious(")", "Insert ')'"));
     advance();   // ')'
 
     action.end = endOf(previous());
@@ -237,6 +287,7 @@ std::unique_ptr<Expr> Parser::binary(const std::string& op, std::unique_ptr<Expr
 
 // expr -> and_expr { OR and_expr }            (lowest precedence)
 std::unique_ptr<Expr> Parser::parseExpr() {
+    Scope scope(*this, "expr");
     auto left = parseAnd();
     while (match(TokenType::OR)) left = binary("OR", std::move(left), parseAnd());
     return left;
@@ -244,6 +295,7 @@ std::unique_ptr<Expr> Parser::parseExpr() {
 
 // and_expr -> not_expr { AND not_expr }
 std::unique_ptr<Expr> Parser::parseAnd() {
+    Scope scope(*this, "and_expr");
     auto left = parseNot();
     while (match(TokenType::AND)) left = binary("AND", std::move(left), parseNot());
     return left;
@@ -251,6 +303,7 @@ std::unique_ptr<Expr> Parser::parseAnd() {
 
 // not_expr -> NOT not_expr | rel_expr
 std::unique_ptr<Expr> Parser::parseNot() {
+    Scope scope(*this, "not_expr");
     if (match(TokenType::NOT)) {
         auto node = std::make_unique<UnaryExpr>();
         node->op = "NOT";
@@ -264,6 +317,7 @@ std::unique_ptr<Expr> Parser::parseNot() {
 
 // rel_expr -> arith [ relop arith ]       (comparisons do not chain)
 std::unique_ptr<Expr> Parser::parseRelational() {
+    Scope scope(*this, "rel_expr");
     auto left = parseArith();
     if (isRelOp(peek().type)) {
         std::string op = advance().lexeme;
@@ -274,6 +328,7 @@ std::unique_ptr<Expr> Parser::parseRelational() {
 
 // arith -> term { ('+' | '-') term }
 std::unique_ptr<Expr> Parser::parseArith() {
+    Scope scope(*this, "arith");
     auto left = parseTerm();
     while (check(TokenType::PLUS) || check(TokenType::MINUS)) {
         std::string op = advance().lexeme;
@@ -284,6 +339,7 @@ std::unique_ptr<Expr> Parser::parseArith() {
 
 // term -> unary { ('*' | '/') unary }
 std::unique_ptr<Expr> Parser::parseTerm() {
+    Scope scope(*this, "term");
     auto left = parseUnary();
     while (check(TokenType::STAR) || check(TokenType::SLASH)) {
         std::string op = advance().lexeme;
@@ -294,6 +350,7 @@ std::unique_ptr<Expr> Parser::parseTerm() {
 
 // unary -> '-' unary | primary
 std::unique_ptr<Expr> Parser::parseUnary() {
+    Scope scope(*this, "unary");
     if (match(TokenType::MINUS)) {
         auto node = std::make_unique<UnaryExpr>();
         node->op = "-";
@@ -307,6 +364,7 @@ std::unique_ptr<Expr> Parser::parseUnary() {
 
 // primary -> NUMBER | IDENT | ON | OFF | OPEN | CLOSED | TRUE | FALSE | '(' expr ')'
 std::unique_ptr<Expr> Parser::parsePrimary() {
+    Scope scope(*this, "primary");
     if (match(TokenType::LPAREN)) {
         Pos open = startOf(previous());
         auto inner = parseExpr();

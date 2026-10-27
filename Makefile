@@ -2,8 +2,8 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -pedantic -O2
 
 SRC   := src/lexer.cpp src/parser.cpp src/ast.cpp src/semantic.cpp src/rule_analysis.cpp \
-         src/ir.cpp src/cfg.cpp src/optimizer.cpp src/codegen.cpp src/compiler.cpp \
-         src/json.cpp src/main.cpp
+         src/ir.cpp src/cfg.cpp src/optimizer.cpp src/codegen.cpp src/english.cpp src/grammar.cpp \
+         src/compiler.cpp src/json.cpp src/main.cpp
 OBJ   := $(SRC:src/%.cpp=build/%.o)
 HDRS  := $(wildcard src/*.h)
 BIN   := iotc

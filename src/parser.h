@@ -5,15 +5,28 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "ast.h"
 #include "token.h"
 
+// One event of the recursive-descent parse (for the visualizer):
+// "enter"/"exit" a grammar function, "token" consumed, or "error".
+struct ParseEvent {
+    std::string kind;
+    std::string name;    // grammar rule (enter/exit), lexeme (token), expected (error)
+    int token;           // index of the current token
+    int depth;           // call-stack depth
+};
+
 class Parser {
 public:
     explicit Parser(const std::vector<Token>& tokens);
+
+    void enableTrace() { trace_ = true; }
+    const std::vector<ParseEvent>& trace() const { return events_; }
 
     // Parses the whole program. On a syntax error the parser records it,
     // skips ahead to the next statement (panic-mode recovery) and continues,
@@ -26,6 +39,14 @@ public:
 
 private:
     struct ParseError {};   // thrown to unwind to the statement level
+
+    // Records enter/exit of a grammar function in the trace (RAII).
+    struct Scope {
+        Parser& parser;
+        const char* rule;
+        Scope(Parser& p, const char* name);
+        ~Scope();
+    };
 
     // Grammar rules
     std::unique_ptr<Statement> parseSensorDecl();
@@ -52,7 +73,9 @@ private:
     const Token& expect(TokenType t, const std::string& what);
 
     // Error handling
-    [[noreturn]] void fail(const std::string& expected, const std::string& hint = "");
+    [[noreturn]] void fail(const std::string& expected, const std::string& hint = "",
+                           std::optional<Fix> fix = std::nullopt);
+    Fix insertAfterPrevious(const std::string& text, const std::string& title) const;
     void synchronize();
 
     static Pos startOf(const Token& t) { return Pos{t.line, t.col}; }
@@ -63,4 +86,9 @@ private:
     std::vector<Diagnostic> errors_;
     int rules_ = 0;
     int declarations_ = 0;
+
+    static const size_t kMaxTraceEvents = 6000;
+    bool trace_ = false;
+    int depth_ = 0;
+    std::vector<ParseEvent> events_;
 };

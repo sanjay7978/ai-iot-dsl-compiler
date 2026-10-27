@@ -74,7 +74,7 @@ IrValue IrGenerator::genExpr(const Expr& e) {
         in.dest = newTemp();
         in.a = v;
         in.numeric = u->op == "-";
-        emit(in);
+        emit(in, e);
         return IrValue::temp(in.dest);
     }
     const BinaryExpr& b = dynamic_cast<const BinaryExpr&>(e);
@@ -86,7 +86,7 @@ IrValue IrGenerator::genExpr(const Expr& e) {
     in.a = left;
     in.b = right;
     in.numeric = isArithmeticOp(b.op);
-    emit(in);
+    emit(in, e);
     return IrValue::temp(in.dest);
 }
 
@@ -102,7 +102,7 @@ void IrGenerator::genActions(const std::vector<Action>& actions) {
         IrInstr in = IrInstr::of(IrOp::Call);
         in.callee = a.name;
         in.args = args;
-        emit(in);
+        emit(in, a);
     }
 }
 
@@ -132,7 +132,7 @@ std::vector<IrInstr> IrGenerator::generate(const Program& program) {
         ++rule_;
         IrInstr marker = IrInstr::of(IrOp::Rule);
         marker.line = r->start.line;
-        emit(marker);
+        emit(marker, *r);
 
         bool hasElse = !r->elseActions.empty();
         bool single = r->branches.size() == 1 && !hasElse;
@@ -148,21 +148,21 @@ std::vector<IrInstr> IrGenerator::generate(const Program& program) {
             IrInstr jump = IrInstr::of(IrOp::IfFalse);
             jump.a = cond;
             jump.label = next;
-            emit(jump);
+            emit(jump, *b.condition);
 
             genActions(b.actions);
 
             if (single) {
                 IrInstr lbl = IrInstr::of(IrOp::Label);
                 lbl.label = next;
-                emit(lbl);
+                emit(lbl, *r);
             } else if (!(last && !hasElse)) {
                 IrInstr skip = IrInstr::of(IrOp::Goto);
                 skip.label = end();
-                emit(skip);
+                emit(skip, *r);
                 IrInstr lbl = IrInstr::of(IrOp::Label);
                 lbl.label = next;
-                emit(lbl);
+                emit(lbl, *r);
             }
         }
 
@@ -170,7 +170,7 @@ std::vector<IrInstr> IrGenerator::generate(const Program& program) {
         if (!single) {
             IrInstr lbl = IrInstr::of(IrOp::Label);
             lbl.label = end();
-            emit(lbl);
+            emit(lbl, *r);
         }
     }
     return code_;

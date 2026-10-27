@@ -50,6 +50,7 @@ struct IrInstr {
     int rule = 0;                // rule number this instruction belongs to
     int line = 0;                // Rule: source line of the rule
     bool numeric = false;        // dest holds a number (true) or true/false (false)
+    Pos srcStart, srcEnd;        // source span this instruction was generated from
 
     static IrInstr of(IrOp op) { IrInstr in; in.op = op; return in; }
 };
@@ -70,7 +71,14 @@ private:
     void genActions(const std::vector<Action>& actions);
     std::string newTemp() { return "t" + std::to_string(++temps_); }
     std::string newLabel() { return "L" + std::to_string(++labels_); }
-    void emit(IrInstr in) { in.rule = rule_; code_.push_back(std::move(in)); }
+    // Every instruction remembers the source span it came from (a "source map"),
+    // so the web page can link IR and generated code back to the program text.
+    void emit(IrInstr in, const Node& from) {
+        in.rule = rule_;
+        in.srcStart = from.start;
+        in.srcEnd = from.end;
+        code_.push_back(std::move(in));
+    }
 
     std::vector<IrInstr> code_;
     int temps_ = 0;

@@ -5,6 +5,7 @@
 #include <chrono>
 
 #include "codegen.h"
+#include "english.h"
 #include "lexer.h"
 #include "parser.h"
 
@@ -28,7 +29,7 @@ bool hasErrors(const std::vector<Diagnostic>& diags) {
 
 }  // namespace
 
-CompileResult compile(const std::string& source, const std::string& sourceName) {
+CompileResult compile(const std::string& source, const std::string& sourceName, bool trace) {
     CompileResult r;
     r.phases = {
         {"lexer", "Lexical analysis", "skipped"},
@@ -43,13 +44,17 @@ CompileResult compile(const std::string& source, const std::string& sourceName) 
 
     // Phase 1: lexical analysis
     Lexer lexer(source);
+    if (trace) lexer.enableTrace();
     r.tokens = lexer.tokenize();
+    r.lexTrace = lexer.trace();
     r.diagnostics = lexer.errors();
     r.phases[0].status = hasErrors(lexer.errors()) ? "error" : "ok";
 
     // Phases 2-3: syntax analysis and AST construction
     Parser parser(r.tokens);
+    if (trace) parser.enableTrace();
     r.program = parser.parse();
+    r.parseTrace = parser.trace();
     r.diagnostics.insert(r.diagnostics.end(), parser.errors().begin(), parser.errors().end());
     r.rules = parser.ruleCount();
     r.declarations = parser.declarationCount();
@@ -58,6 +63,8 @@ CompileResult compile(const std::string& source, const std::string& sourceName) 
     r.phases[2].status = syntaxOk ? "ok" : "error";
 
     if (!hasErrors(r.diagnostics)) {
+        r.english = describeProgram(*r.program);
+
         // Phase 4: semantic analysis
         SemanticAnalyzer sema;
         std::vector<Diagnostic> semDiags = sema.analyze(*r.program, r.symbols);
@@ -77,9 +84,10 @@ CompileResult compile(const std::string& source, const std::string& sourceName) 
             computeLiveness(r.cfg, r.optimizedIr);
             r.phases[5].status = "ok";
 
-            // Phase 7: code generation
-            CodeGenerator gen;
-            r.cCode = gen.generate(r.optimizedIr, r.symbols, sourceName);
+            // Phase 7: code generation for every target
+            for (const auto& target : allTargets())
+                r.targets.push_back(generateCode(r.optimizedIr, r.symbols, sourceName, *target));
+            r.cCode = r.targets.front().code;
             r.phases[6].status = "ok";
         }
     }

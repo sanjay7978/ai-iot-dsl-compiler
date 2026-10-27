@@ -17,10 +17,18 @@ struct OptPass {
     int count = 0;   // how many times it changed the code
 };
 
+// The code after one pass changed it (for the optimizer "time machine").
+struct OptSnapshot {
+    std::string pass;            // pass name ("Original" for the first snapshot)
+    int round = 0;               // fixpoint iteration
+    std::vector<IrInstr> code;
+};
+
 struct OptReport {
     int before = 0;   // instruction count before optimization
     int after = 0;    // and after
     std::vector<OptPass> passes;
+    std::vector<OptSnapshot> trace;   // at most kMaxSnapshots entries
 };
 
 class Optimizer {
