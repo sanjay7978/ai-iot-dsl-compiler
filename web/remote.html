@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sensor Remote</title>
+  <meta name="theme-color" content="#161615">
+  <style>
+    :root {
+      --bg: #f7f6f3; --panel: #ffffff; --ink: #1c1c1a; --muted: #6b6a65; --faint: #9a988f;
+      --line: #e4e2dc; --accent: #3f6b4f; --accent-ink: #fff; --accent-soft: #e6eee8; --error: #a8442f;
+      --mono: ui-monospace, "SF Mono", Menlo, monospace;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe7; --muted: #a3a19a; --faint: #75736c;
+              --line: #2e2d2a; --accent: #8db59a; --accent-ink: #13201a; --accent-soft: #24302a; --error: #e08a76;
+              color-scheme: dark; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+           padding: max(16px, env(safe-area-inset-top)) 16px 32px; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    h1 { font-size: 19px; margin: 0; }
+    .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); display: inline-block; }
+    .dot.ok { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; }
+    .name { font: 600 15px var(--mono); display: flex; justify-content: space-between; align-items: baseline; }
+    .value { font: 600 22px var(--mono); color: var(--accent); }
+    .type { font-size: 12px; color: var(--faint); }
+    input[type=range] { width: 100%; height: 36px; accent-color: var(--accent); margin: 6px 0 0; }
+    .seg { display: flex; gap: 8px; margin-top: 10px; }
+    .seg button { flex: 1; min-height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+                  color: var(--ink); font: 600 15px var(--mono); }
+    .seg button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .empty { color: var(--muted); text-align: center; padding: 40px 10px; }
+    .err { color: var(--error); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>Sensor remote</h1><p class="sub" id="program">Connecting…</p></div>
+    <span class="dot" id="dot" title="Connection"></span>
+  </header>
+  <main id="sensors"><p class="empty">Waiting for the laptop to compile a program…</p></main>
+
+  <script>
+    // The phone page: shows the current program's sensors and sends every change
+    // to the laptop (which runs the compiled rules and updates its digital twin).
+    (function () {
+      "use strict";
+      const key = new URLSearchParams(location.search).get("k") || "";
+      const q = "?k=" + encodeURIComponent(key);
+      let version = -1;
+      const values = {};
+
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const unit = (n) => /temp|outside/i.test(n) ? " °C" : /humid|soil|moist/i.test(n) ? " %" : /light|lux/i.test(n) ? " lx" : "";
+
+      let sendTimer = {};
+      function send(name, value) {
+        clearTimeout(sendTimer[name]);
+        sendTimer[name] = setTimeout(() => {
+          fetch("/api/remote/state" + q, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, value: String(value) }) })
+            .then((r) => document.getElementById("dot").className = "dot" + (r.ok ? " ok" : ""))
+            .catch(() => document.getElementById("dot").className = "dot");
+        }, 60);
+      }
+
+      function render(cfg) {
+        document.getElementById("program").textContent = cfg.sensors.length ? "Program: " + cfg.program : "No sensors in the current program";
+        const host = document.getElementById("sensors");
+        host.innerHTML = "";
+        cfg.sensors.forEach((s) => {
+          const card = document.createElement("section");
+          card.className = "card";
+          const v = values[s.name] ?? s.value ?? (s.type === "NUMBER" ? s.first : s.options[0]);
+          values[s.name] = v;
+          if (s.type === "NUMBER") {
+            card.innerHTML = `<div class="name"><span>${esc(s.name)}</span><span class="value">${esc(v)}${unit(s.name)}</span></div>` +
+              `<input type="range" min="${s.min}" max="${Math.max(s.max, v)}" step="${s.step}" value="${v}" aria-label="${esc(s.name)}">`;
+            const range = card.querySelector("input"), out = card.querySelector(".value");
+            range.addEventListener("input", () => { values[s.name] = +range.value; out.textContent = range.value + unit(s.name); send(s.name, range.value); });
+          } else {
+            card.innerHTML = `<div class="name"><span>${esc(s.name)}</span><span class="type">STATE</span></div><div class="seg">` +
+              s.options.map((o) => `<button type="button" class="${o === v ? "on" : ""}" data-v="${o}">${o}</button>`).join("") + "</div>";
+            card.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+              values[s.name] = b.dataset.v;
+              card.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+              send(s.name, b.dataset.v);
+            }));
+          }
+          host.appendChild(card);
+        });
+      }
+
+      async function poll() {
+        try {
+          const r = await fetch("/api/remote/config" + q);
+          if (r.status === 403) {
+            document.getElementById("sensors").innerHTML = '<p class="empty err">This link has expired. Scan the QR code again.</p>';
+            return;
+          }
+          const cfg = await r.json();
+          document.getElementById("dot").className = "dot ok";
+          if (cfg.version !== version) { version = cfg.version; render(cfg); }
+        } catch (e) {
+          document.getElementById("dot").className = "dot";
+        }
+        setTimeout(poll, 1500);
+      }
+      poll();
+    })();
+  </script>
+</body>
+</html>

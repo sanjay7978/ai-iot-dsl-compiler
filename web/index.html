@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IoT DSL Compiler</title>
-  <meta name="description" content="AI-assisted compiler for an IoT automation language: lexer, parser, semantic analysis, intermediate code, optimization and C code generation.">
+  <meta name="description" content="An AI-assisted compiler for an IoT automation language: lexer, parser, semantic and rule analysis, intermediate code, CFG optimizer and code generation for C, Arduino, Python and JavaScript, with a compiler X-ray and a smart-home digital twin.">
   <script>
     // Apply the saved theme before first paint to avoid a flash.
     try {
@@ -13,6 +13,7 @@
     } catch (e) {}
   </script>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="features.css">
 </head>
 <body>
   <div class="page">
@@ -30,6 +31,26 @@
         </div>
       </div>
       <div class="top-actions">
+        <button id="paletteBtn" class="btn btn-quiet palette-btn" type="button" title="Search all commands">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <span>Commands</span><kbd id="paletteKey">Ctrl K</kbd>
+        </button>
+        <button id="presentBtn" class="btn btn-quiet" type="button" title="Guided tour for presenting">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          <span>Present</span>
+        </button>
+        <button id="shareBtn" class="btn btn-quiet icon-only-sm" type="button" title="Copy a link to this program">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          <span>Share</span>
+        </button>
+        <button id="reportBtn" class="btn btn-quiet icon-only-sm" type="button" title="Print or save the compilation report as PDF">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>
+          <span>Report</span>
+        </button>
+        <button id="remoteBtn" class="btn btn-quiet icon-only-sm" type="button" title="Use a phone as the sensor panel">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>
+          <span>Phone remote</span>
+        </button>
         <button id="themeToggle" class="icon-btn" type="button" aria-label="Switch theme" title="Switch theme">
           <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
@@ -41,7 +62,7 @@
       </div>
     </header>
 
-    <!-- AI assistance: English -> DSL -->
+    <!-- AI assistance: English (typed or spoken) -> DSL -->
     <section class="assistant" aria-label="AI assistant">
       <form class="ai-form" id="aiForm" autocomplete="off">
         <label class="ai-label" for="aiInput">
@@ -49,9 +70,15 @@
           <span class="ai-badge" id="aiBadge" title="Which AI model converts English to DSL">AI &middot; checking…</span>
         </label>
         <div class="ai-row">
-          <input id="aiInput" type="text" maxlength="500"
-                 placeholder="e.g. If the temperature is above 30 and the door is open, turn on the fan">
+          <div class="ai-input-wrap">
+            <input id="aiInput" type="text" maxlength="500"
+                   placeholder="e.g. If the temperature is above 30 and the door is open, turn on the fan">
+            <button id="aiMic" class="mic-btn" type="button" aria-label="Speak a rule" aria-pressed="false" title="Speak a rule">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            </button>
+          </div>
           <button id="aiBtn" class="btn btn-primary" type="submit">Convert to DSL</button>
+          <button id="explainBtn" class="btn" type="button" title="The compiler explains the current program in English">Explain program</button>
         </div>
       </form>
       <div class="ai-result" id="aiResult" hidden>
@@ -67,15 +94,25 @@
           <button class="link-btn" type="button" id="aiDismiss">Dismiss</button>
         </div>
       </div>
+      <div class="english-card" id="englishCard" hidden>
+        <div class="english-head">
+          <b>This program in plain English</b>
+          <span class="ai-meta" id="englishBy"></span>
+          <span class="spacer"></span>
+          <button class="btn btn-small" type="button" id="englishAi">Make it friendlier (AI)</button>
+          <button class="link-btn" type="button" id="englishClose">Close</button>
+        </div>
+        <div class="english-text" id="englishText"></div>
+      </div>
     </section>
 
     <section class="pipeline" aria-label="Compiler phases">
       <ol class="steps">
         <li><button class="step" type="button" data-step="lexer" data-tab="tokens">
-          <span class="step-num">01</span><span class="step-name">Lexer</span><span class="step-sub">Tokens</span>
+          <span class="step-num">01</span><span class="step-name">Lexer</span><span class="step-sub">DFA, tokens</span>
         </button></li>
-        <li><button class="step" type="button" data-step="parser" data-tab="ast">
-          <span class="step-num">02</span><span class="step-name">Parser</span><span class="step-sub">Grammar check</span>
+        <li><button class="step" type="button" data-step="parser" data-tab="language">
+          <span class="step-num">02</span><span class="step-name">Parser</span><span class="step-sub">LL(1) grammar</span>
         </button></li>
         <li><button class="step" type="button" data-step="ast" data-tab="ast">
           <span class="step-num">03</span><span class="step-name">AST</span><span class="step-sub">Syntax tree</span>
@@ -86,22 +123,27 @@
         <li><button class="step" type="button" data-step="ir" data-tab="ir" data-ir="original">
           <span class="step-num">05</span><span class="step-name">IR</span><span class="step-sub">Three-address code</span>
         </button></li>
-        <li><button class="step" type="button" data-step="optimizer" data-tab="ir" data-ir="optimized">
+        <li><button class="step" type="button" data-step="optimizer" data-tab="ir" data-ir="machine">
           <span class="step-num">06</span><span class="step-name">Optimizer</span><span class="step-sub">CFG, dataflow</span>
         </button></li>
-        <li><button class="step" type="button" data-step="codegen" data-tab="c">
-          <span class="step-num">07</span><span class="step-name">Codegen</span><span class="step-sub">Target C code</span>
+        <li><button class="step" type="button" data-step="codegen" data-tab="code">
+          <span class="step-num">07</span><span class="step-name">Codegen</span><span class="step-sub">C · Arduino · Py · JS</span>
         </button></li>
       </ol>
-      <div class="legend">
-        <span><i class="dot dot-ok"></i>Passed</span>
-        <span><i class="dot dot-error"></i>Errors found</span>
-        <span><i class="dot dot-skipped"></i>Not run (an earlier phase failed)</span>
-        <span class="legend-hint">Click a phase to see its output</span>
+      <div class="pipeline-foot">
+        <div class="legend">
+          <span><i class="dot dot-ok"></i>Passed</span>
+          <span><i class="dot dot-error"></i>Errors found</span>
+          <span><i class="dot dot-skipped"></i>Not run</span>
+        </div>
+        <button id="xrayBtn" class="btn btn-primary xray-btn" type="button">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Watch it compile
+        </button>
       </div>
     </section>
 
-    <main class="workspace">
+    <main class="workspace" id="workspace">
       <section class="panel editor-panel" aria-label="Source program">
         <div class="panel-head">
           <h2>Source</h2>
@@ -109,6 +151,9 @@
             <label class="select-wrap">
               <span class="sr-only">Load example</span>
               <select id="examples"><option value="">Examples</option></select>
+            </label>
+            <label class="live-toggle" title="Compile while you type">
+              <input type="checkbox" id="liveToggle" checked><span>Live</span>
             </label>
             <button id="clearBtn" class="btn" type="button">Clear</button>
             <button id="compileBtn" class="btn btn-primary" type="button">
@@ -128,23 +173,20 @@
 
         <div class="panel-foot">
           <span id="cursorPos">Ln 1, Col 1</span>
+          <span class="foot-hint">Hover a name for its type · Ctrl/⌘-click to jump</span>
           <span id="lineCount">0 lines</span>
         </div>
       </section>
 
       <section class="panel output-panel" aria-label="Compiler output">
         <div class="tabs" role="tablist">
-          <button class="tab active" role="tab" data-tab="tokens" aria-selected="true">
-            Tokens <span class="count" id="tokenCount">0</span>
-          </button>
+          <button class="tab active" role="tab" data-tab="tokens" aria-selected="true">Tokens <span class="count" id="tokenCount">0</span></button>
           <button class="tab" role="tab" data-tab="ast" aria-selected="false">Syntax tree</button>
+          <button class="tab" role="tab" data-tab="language" aria-selected="false">Language</button>
           <button class="tab" role="tab" data-tab="symbols" aria-selected="false">Symbols</button>
           <button class="tab" role="tab" data-tab="ir" aria-selected="false">IR</button>
-          <button class="tab" role="tab" data-tab="c" aria-selected="false">C code</button>
-          <button class="tab" role="tab" data-tab="sim" aria-selected="false">Simulator</button>
-          <button class="tab" role="tab" data-tab="problems" aria-selected="false">
-            Problems <span class="count" id="problemCount">0</span>
-          </button>
+          <button class="tab" role="tab" data-tab="code" aria-selected="false">Code</button>
+          <button class="tab" role="tab" data-tab="problems" aria-selected="false">Problems <span class="count" id="problemCount">0</span></button>
           <span class="tab-indicator" id="tabIndicator"></span>
         </div>
 
@@ -154,19 +196,49 @@
             <div class="empty" id="tokensEmpty"><span>Press <strong>Compile</strong> to run the lexer.</span></div>
             <table class="data-table" id="tokenTable" hidden>
               <thead><tr><th>#</th><th>Line:Col</th><th>Token</th><th>Lexeme</th></tr></thead>
-              <tbody id="tokenBody"></tbody>
+              <tbody id="tokenBody" data-link-group></tbody>
             </table>
           </div>
 
           <!-- Phases 2-3 -->
           <div class="pane" id="pane-ast" role="tabpanel">
-            <div class="pane-tools" id="astTools" hidden>
-              <span class="pane-title">Abstract syntax tree</span>
-              <button class="link-btn" type="button" id="expandAll">Expand all</button>
-              <button class="link-btn" type="button" id="collapseAll">Collapse all</button>
-            </div>
             <div class="empty" id="astEmpty"><span>Press <strong>Compile</strong> to build the syntax tree.</span></div>
-            <div class="tree" id="astTree"></div>
+            <div id="astBody" hidden>
+              <div class="pane-tools">
+                <div class="segmented" role="group" aria-label="Tree view">
+                  <button type="button" class="seg active" data-ast="graph">Graph</button>
+                  <button type="button" class="seg" data-ast="list">List</button>
+                </div>
+                <span id="astListTools" hidden>
+                  <button class="link-btn" type="button" id="expandAll">Expand all</button>
+                  <button class="link-btn" type="button" id="collapseAll">Collapse all</button>
+                </span>
+              </div>
+              <div class="graph-host" id="astGraph" data-link-group></div>
+              <div class="tree" id="astTree" data-link-group hidden></div>
+            </div>
+          </div>
+
+          <!-- Language: DFA and grammar -->
+          <div class="pane" id="pane-language" role="tabpanel">
+            <div class="lang">
+              <section>
+                <h3>Scanner DFA <small>the automaton the hand-written lexer implements · double circles accept a token</small></h3>
+                <div id="dfaView" class="dfa-host"></div>
+              </section>
+              <section>
+                <h3>Grammar <small>BNF; each rule is one function of the recursive-descent parser</small> <span id="llBadge" class="ll-badge"></span></h3>
+                <div id="productions" class="productions"></div>
+              </section>
+              <section>
+                <h3>FIRST and FOLLOW sets</h3>
+                <div class="table-scroll"><table class="data-table ff-table" id="firstFollow"></table></div>
+              </section>
+              <section>
+                <h3>LL(1) parse table <small>M[A, a] = the production used for nonterminal A when the next token is a</small></h3>
+                <div class="table-scroll"><table class="ll-table" id="llTable"></table></div>
+              </section>
+            </div>
           </div>
 
           <!-- Phase 4 -->
@@ -175,13 +247,14 @@
             <div id="symbolsBody" hidden>
               <table class="data-table">
                 <thead><tr><th>Name</th><th>Kind</th><th>Type</th><th>Declared</th><th>Uses</th></tr></thead>
-                <tbody id="symbolRows"></tbody>
+                <tbody id="symbolRows" data-link-group></tbody>
               </table>
               <div class="note-block">
+                <p class="rule-check" id="ruleCheck"></p>
                 <h3>Built-in actions</h3>
                 <p class="mono-list">turn_on(device) &middot; turn_off(device) &middot; toggle(device) &middot; set_level(device, number)</p>
                 <h3>Type rules</h3>
-                <p>NUMBER sensors compare with numbers using &gt; &lt; &gt;= &lt;= == !=. STATE sensors compare only with == and != against ON, OFF, OPEN, CLOSED, TRUE, FALSE. Every name must be declared once.</p>
+                <p>NUMBER values compare with numbers and allow + − × ÷. STATE sensors compare only with == and != against ON, OFF, OPEN, CLOSED, TRUE, FALSE. Conditions must be true/false. Every name is declared exactly once.</p>
               </div>
             </div>
           </div>
@@ -191,54 +264,89 @@
             <div class="empty" id="irEmpty"><span>Intermediate code is generated once the program passes semantic analysis.</span></div>
             <div id="irBody" hidden>
               <div class="pane-tools">
-                <div class="segmented" role="group" aria-label="IR version">
+                <div class="segmented" role="group" aria-label="IR view">
                   <button type="button" class="seg active" data-ir="original">Original</button>
                   <button type="button" class="seg" data-ir="optimized">Optimized</button>
-                  <button type="button" class="seg" data-ir="cfg">Basic blocks</button>
+                  <button type="button" class="seg" data-ir="machine">Time machine</button>
+                  <button type="button" class="seg" data-ir="cfg">CFG</button>
                 </div>
                 <span class="ir-summary" id="irSummary"></span>
               </div>
+              <div class="machine-bar" id="machineBar" hidden>
+                <button class="btn btn-small" type="button" id="machinePlay">Play</button>
+                <button class="icon-btn small" type="button" id="machinePrev" aria-label="Previous pass">‹</button>
+                <input type="range" id="machineSlider" min="0" max="0" value="0" aria-label="Optimization step">
+                <button class="icon-btn small" type="button" id="machineNext" aria-label="Next pass">›</button>
+                <span class="machine-pass" id="machinePass"></span>
+                <span class="machine-step" id="machineStep"></span>
+              </div>
               <div class="opt-report" id="optReport" hidden></div>
-              <ol class="ir-list" id="irList"></ol>
+              <ol class="ir-list" id="irList" data-link-group></ol>
+              <div class="graph-host cfg-host" id="cfgGraph" data-link-group hidden></div>
             </div>
           </div>
 
           <!-- Phase 7 -->
-          <div class="pane" id="pane-c" role="tabpanel">
-            <div class="empty" id="cEmpty"><span>C code is generated once the program compiles without errors.</span></div>
-            <div id="cBody" hidden>
+          <div class="pane" id="pane-code" role="tabpanel">
+            <div class="empty" id="codeEmpty"><span>Code is generated once the program compiles without errors.</span></div>
+            <div id="codeBody" hidden>
               <div class="pane-tools">
-                <span class="pane-title">Generated from the optimized IR</span>
-                <button class="link-btn" type="button" id="copyC">Copy</button>
-                <button class="btn btn-small" type="button" id="runC" title="Compiles this C code with the runtime and runs it with the simulator's sensor values">Build &amp; run</button>
+                <div class="segmented" role="group" aria-label="Target language">
+                  <button type="button" class="seg active" data-target="c">C</button>
+                  <button type="button" class="seg" data-target="arduino">Arduino</button>
+                  <button type="button" class="seg" data-target="python">Python</button>
+                  <button type="button" class="seg" data-target="js">JavaScript</button>
+                </div>
+                <span class="pane-title code-file" id="codeFile"></span>
+                <button class="link-btn" type="button" id="copyCode">Copy</button>
+                <button class="link-btn" type="button" id="downloadCode">Download</button>
+                <button class="btn btn-small" type="button" id="runCode">Build &amp; run</button>
               </div>
               <div class="run-output" id="runOutput" hidden></div>
-              <pre class="c-code" id="cCode"></pre>
-            </div>
-          </div>
-
-          <!-- Simulator -->
-          <div class="pane" id="pane-sim" role="tabpanel">
-            <div class="empty" id="simEmpty"><span>The simulator runs once the program compiles without errors.</span></div>
-            <div id="simBody" class="sim" hidden>
-              <p class="sim-intro">Change the sensor values. The optimized intermediate code runs in the browser on every change.</p>
-              <h3>Sensors</h3>
-              <div class="sensor-list" id="sensorList"></div>
-              <h3>Devices</h3>
-              <div class="device-grid" id="deviceGrid"></div>
-              <h3>Rules</h3>
-              <ol class="rule-list" id="ruleList"></ol>
+              <ol class="ir-list code-list" id="codeLines" data-link-group></ol>
             </div>
           </div>
 
           <!-- Errors and warnings -->
           <div class="pane" id="pane-problems" role="tabpanel">
             <div class="empty" id="problemsEmpty"><span>Press <strong>Compile</strong> to check the program.</span></div>
-            <ul class="error-list" id="errorList"></ul>
+            <ul class="error-list" id="errorList" data-link-group></ul>
           </div>
         </div>
       </section>
     </main>
+
+    <!-- The compiled program running in a digital twin -->
+    <section class="home" id="smartHome" aria-label="Smart home digital twin">
+      <div class="home-head">
+        <div>
+          <h2>Smart home</h2>
+          <p class="subtitle">The compiled program running in a digital twin. Every change runs the optimized IR from the compiler.</p>
+        </div>
+        <div class="home-actions">
+          <span class="day-clock" id="dayClock">Live</span>
+          <button class="btn" type="button" id="liveMode" title="Stop the day and use the sliders">Live controls</button>
+          <label class="select-wrap"><span class="sr-only">Speed</span>
+            <select id="daySpeed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+          </label>
+          <button class="btn" type="button" id="newDay" title="Generate a different day">New day</button>
+          <button class="btn btn-primary" type="button" id="playDay">Play a day</button>
+        </div>
+      </div>
+      <div class="empty" id="homeEmpty"><span>The smart home comes alive once the program compiles without errors.</span></div>
+      <div id="homeBody" hidden>
+        <div class="home-grid">
+          <div class="twin" id="twin"></div>
+          <aside class="home-side">
+            <h3>Sensors</h3>
+            <div class="sensor-list" id="sensorList"></div>
+            <h3>Rules</h3>
+            <ol class="rule-list" id="ruleList"></ol>
+          </aside>
+        </div>
+        <div class="day-chart" id="dayChart"></div>
+      </div>
+    </section>
 
     <footer class="statusbar">
       <span class="status" id="status"><i class="status-dot"></i><span id="statusText">Ready</span></span>
@@ -249,8 +357,67 @@
       <span class="stat"><span class="stat-label">IR</span><span id="statIr">–</span></span>
       <span class="stat"><span class="stat-label">Time</span><span id="statTime">–</span></span>
     </footer>
-
   </div>
-  <script src="app.js"></script>
+
+  <!-- Compiler X-ray -->
+  <div class="xray" id="xray" hidden role="dialog" aria-modal="true" aria-label="Compiler X-ray">
+    <div class="xr-top">
+      <div class="xr-title">
+        <span class="xr-kicker">Compiler X-ray</span>
+        <h2 id="xrPhase">Lexical analysis</h2>
+        <p id="xrCaption"></p>
+      </div>
+      <button class="icon-btn" type="button" id="xrClose" aria-label="Close X-ray" title="Close (Esc)">✕</button>
+    </div>
+    <ol class="xr-steps" id="xrSteps"></ol>
+    <div class="xr-stage" id="xrStage"></div>
+    <div class="xr-controls">
+      <button class="icon-btn" type="button" id="xrPrev" aria-label="Previous step">‹</button>
+      <button class="btn btn-primary" type="button" id="xrPlay" aria-label="Play">Play</button>
+      <button class="icon-btn" type="button" id="xrNext" aria-label="Next step">›</button>
+      <input type="range" id="xrScrub" min="0" max="0" value="0" aria-label="Position in the compilation">
+      <span class="xr-counter" id="xrCounter"></span>
+      <label class="select-wrap"><span class="sr-only">Speed</span>
+        <select id="xrSpeed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      </label>
+    </div>
+  </div>
+
+  <!-- Presentation mode -->
+  <div class="tour" id="tour" hidden>
+    <div class="tour-spot" id="tourSpot"></div>
+    <div class="tour-card" id="tourCard" role="dialog" aria-live="polite">
+      <span class="tour-count" id="tourCount"></span>
+      <h3 id="tourTitle"></h3>
+      <p id="tourText"></p>
+      <div class="tour-actions">
+        <button class="link-btn" type="button" id="tourExit">Exit</button>
+        <span class="spacer"></span>
+        <button class="btn" type="button" id="tourPrev">Back</button>
+        <button class="btn btn-primary" type="button" id="tourNext">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box" role="dialog" aria-label="Commands">
+      <input id="paletteInput" type="text" placeholder="Type a command…" aria-label="Search commands" autocomplete="off">
+      <ul id="paletteList" role="listbox"></ul>
+    </div>
+  </div>
+
+  <!-- Phone remote -->
+  <div class="modal" id="remoteModal" hidden>
+    <div class="modal-box" role="dialog" aria-label="Phone remote">
+      <div class="modal-head"><h3>Phone remote</h3><button class="icon-btn small" type="button" id="remoteClose" aria-label="Close">✕</button></div>
+      <div id="remoteBody"></div>
+    </div>
+  </div>
+
+  <!-- Printable report (only visible when printing) -->
+  <div id="report" class="report"></div>
+
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
