@@ -8,7 +8,7 @@ OBJ   := $(SRC:src/%.cpp=build/%.o)
 HDRS  := $(wildcard src/*.h)
 BIN   := iotc
 
-.PHONY: all run test demo clean
+.PHONY: all run remote test demo clean
 
 all: $(BIN)
 
@@ -24,6 +24,10 @@ build:
 # Build the compiler and start the web interface on http://127.0.0.1:8000
 run: $(BIN)
 	python3 server.py
+
+# Same, but phones on the same Wi-Fi can open the remote sensor panel (QR code in the page)
+remote: $(BIN)
+	python3 server.py --lan
 
 test: $(BIN)
 	sh tests/run_tests.sh

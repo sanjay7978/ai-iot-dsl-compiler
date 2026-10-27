@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
         buffer << in.rdbuf();
     }
 
-    std::string name = opt.file.empty() ? "<stdin>" : opt.file;
+    std::string name = opt.file.empty() ? "program.iot" : opt.file;
     CompileResult r = compile(buffer.str(), name, opt.trace);
     int status = r.errorCount() == 0 ? 0 : 1;
 

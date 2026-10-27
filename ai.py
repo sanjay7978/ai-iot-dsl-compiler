@@ -570,3 +570,66 @@ def explain(source, error):
         except AIError:
             pass
     return {"ok": True, "text": offline_explain(message), "provider": "Offline rules"}
+
+
+# ------------------------------------------------------------ program explanation
+
+EXPLAIN_PROGRAM_SYSTEM = f"""You explain IoT automation programs to non-programmers.
+You get the program and a literal English translation produced by the compiler.
+Rewrite it as a short, friendly description of how the home behaves (3-6 sentences).
+Keep every condition and number exactly right. Plain text, no markdown, no headings.
+
+{LANGUAGE_REFERENCE}"""
+
+
+def explain_program(source, english):
+    """A natural description of the whole program; falls back to the compiler's English."""
+    literal = "\n".join(str(s) for s in english)
+    provider = get_provider()
+    if provider is not None and literal:
+        try:
+            reply = provider.chat(EXPLAIN_PROGRAM_SYSTEM,
+                                  f"Program:\n{source}\n\nCompiler's literal translation:\n{literal}")
+            reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.S).strip()
+            reply = re.sub(r"\*\*|`|^#+\s*", "", reply, flags=re.M)
+            if reply:
+                return {"ok": True, "text": reply, "provider": provider.name}
+        except AIError:
+            pass
+    return {"ok": True, "text": literal, "provider": "Compiler (English back-translation)"}
+
+
+# ------------------------------------------------------------------- AI quick fix
+
+FIX_SYSTEM = f"""You repair programs written in the IoT DSL below.
+You get a program and one compiler error. Return the COMPLETE corrected program, changing as
+little as possible (only what is needed to fix this error). Reply with DSL code only: no
+explanations, no markdown, no code fences.
+
+{LANGUAGE_REFERENCE}"""
+
+
+def fix_program(source, error):
+    """Asks the AI for a corrected program and only returns it if it really fixes the error."""
+    provider = get_provider()
+    if provider is None:
+        return {"ok": False, "error": "No AI model is available. Use the compiler's quick fix if one is shown."}
+    numbered = "\n".join(f"{i:>3} | {line}" for i, line in enumerate((source or "").splitlines(), 1))
+    user = (f"Program:\n{numbered}\n\nCompiler {error.get('severity', 'error')} at line {error.get('line')}, "
+            f"column {error.get('col')}: {error.get('message', '')}\n\nCorrected program:")
+    try:
+        fixed = clean_output(provider.chat(FIX_SYSTEM, user))
+    except AIError as e:
+        return {"ok": False, "error": f"{provider.name} is unavailable: {str(e)[:120]}"}
+    if not fixed.strip():
+        return {"ok": False, "error": "The AI did not return a program."}
+
+    before = len(_errors(compile_check(source)))
+    result = compile_check(fixed)
+    after = len(_errors(result))
+    still = [e for e in result.get("errors", [])
+             if e.get("message") == error.get("message") and e.get("line") == error.get("line")]
+    if still or after > before:
+        return {"ok": False, "error": "The AI's suggestion did not fix this error, so it is not offered."}
+    return {"ok": True, "source": fixed, "provider": provider.name, "model": provider.model,
+            "errorsBefore": before, "errorsAfter": after}
