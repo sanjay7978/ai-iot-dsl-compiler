@@ -47,11 +47,20 @@ make run
 
 Then open http://127.0.0.1:8000.
 
+The website ("Kelvin") has five pages:
+- **Home** (`/`): a live compiler demo in the hero, the seven phases with real figures, and numbers measured from the project.
+- **Studio** (`/studio.html`): the compiler workbench, described below.
+- **Docs** (`/docs.html`): language reference, live grammar and DFA, targets, error catalogue, AI setup, CLI.
+- **Examples** (`/examples.html`): every example, compiled when the page loads, with "Open in Studio".
+- **About** (`/about.html`): motivation, architecture and team. The team list is in `web/js/about.js`.
+
+In the Studio:
 - **Describe a rule in English** and press **Convert to DSL**. The result is checked by the compiler before you add it to the editor.
 - Choose an example or type a program, then press **Compile** (Ctrl/⌘ + Enter).
 - Each phase in the phase strip shows whether it passed. Click a phase to open its output.
 - **Watch it compile** opens the Compiler X-ray. **Present** starts a guided tour for presenting.
 - **Tabs:**
+  - Overview (summary and charts of the last compile)
   - Tokens
   - Syntax tree (graph or list)
   - Language (DFA, grammar, FIRST/FOLLOW, LL(1) table)
@@ -61,6 +70,7 @@ Then open http://127.0.0.1:8000.
   - Problems (with quick fixes, Explain and AI fix)
 - **Smart home**: change sensors by hand, or press **Play a day**.
 - Hovering in any pane highlights the matching parts everywhere else.
+- Drag the bar between the editor and the output to resize them (double-click resets).
 - **Ctrl/⌘ + K** lists every command.
 - The button in the top-right corner switches between light and dark mode.
 
@@ -103,7 +113,8 @@ make test                                      # all tests
 ```
 src/        C++ compiler (lexer, parser, AST, semantic, IR, optimizer, codegen, driver)
 runtime/    C runtime linked with generated programs
-web/        Web interface (HTML, CSS, JavaScript, no frameworks)
+web/        Website and Studio (HTML, CSS, JavaScript, no frameworks; fonts bundled in web/fonts)
+tools/      project_stats.py: writes the real numbers shown on the website (run by make test)
 server.py   Local server: compiles, runs generated C, forwards AI requests
 ai.py       AI assistant (Groq / Gemini / Ollama / offline), standard library only
 examples/   Sample programs

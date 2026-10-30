@@ -271,7 +271,30 @@ make demo FILE=examples/09_thermostat.iot ARGS="window=CLOSED temperature=15 out
 
 ## 10. The web interface
 
-Everything is plain HTML, CSS and JavaScript (ES modules, no libraries), served by `server.py`. The page only *shows* what the C++ compiler produced.
+Everything is plain HTML, CSS and JavaScript (ES modules, no libraries), served by `server.py`. The pages only *show* what the C++ compiler produced.
+
+### Website and design system
+
+The site is branded **Kelvin**. The name is a temperature unit, and the colours follow the same idea: *ember* (warm orange) marks actions and live state, and *ice* (cool blue) marks data and success. Dark mode is designed first, and light mode is a warm off-white.
+
+| Page | Files | What it shows |
+|------|-------|---------------|
+| Home | `index.html`, `js/landing.js`, `css/landing.css` | A hero demo that compiles presets or a typed sentence (`/api/nl2dsl` then `/api/compile`), runs the optimized IR in a small simulated room, and lights a six-stage rail with real metrics. Below it: the seven phases with live figures (DFA, grammar and FIRST sets, AST, symbol table and warnings, TAC, an optimizer chart from `optTrace`, four targets) and charts of the bundled examples. |
+| Studio | `studio.html`, `js/main.js`, `js/shell.js`, `js/charts.js`, `css/studio.css` | The compiler workbench: top bar, left rail, composer, pipeline with per-phase metrics, resizable editor/output split, Overview tab, smart home, status bar. |
+| Docs | `docs.html`, `js/docs.js` | Language reference, live grammar and DFA, targets, error catalogue (real compiler messages), AI setup, phone remote, CLI. |
+| Examples | `examples.html`, `js/examples-page.js` | Every example compiled on page load, with filters, tags and "Open in Studio" (a share link carrying the program). |
+| About | `about.html`, `js/about.js` | Motivation, architecture, technology choices, team. |
+
+- **Design tokens (`css/tokens.css`).**
+  - Colour roles for both themes; the old variable names are kept so modules that generate markup restyle automatically.
+  - Type scale, spacing, radii, motion and layers.
+  - Native cross-page transitions (`@view-transition`).
+- **Shared components (`css/components.css`).** Buttons, inputs, badges, segmented controls, toasts, code frames.
+- **Fonts.** Geist, Geist Mono and Instrument Serif (open-source, SIL OFL) are self-hosted in `web/fonts/`, so the site works offline.
+- **Real numbers only.** `tools/project_stats.py` writes `web/data/project.json` every time `make test` runs: test counts, compiler size, grammar facts, per-example results, and the hero presets compiled by `iotc`. The hero falls back to these recorded results if the server is not running.
+- **Accessibility.** Body text is at least 14–15 px, focus rings are visible, and status is never shown by colour alone (each state also has a symbol or text). All motion respects `prefers-reduced-motion`.
+
+### Studio features
 
 - **Compiler X-ray (`web/js/xray.js`).** A full-screen player of the real traces:
   1. The scanner cursor moves while the DFA lights up its states.
@@ -343,6 +366,8 @@ phone ◀──GET /api/remote/config?k=KEY── server ◀──POST /api/remo
 | `src/grammar.*`, `src/english.*` | FIRST/FOLLOW/LL(1) analysis; English back-translation |
 | `src/compiler.*` | Pipeline driver |
 | `src/json.*`, `src/main.cpp` | JSON output and the `iotc` command-line tool |
+| `web/` | Website and Studio (see section 10) |
+| `tools/project_stats.py` | Real project numbers for the website |
 | `server.py`, `ai.py` | Local web server, phone-remote relay and AI assistant (Python standard library only) |
 | `web/`, `web/js/` | Web interface as ES modules (no frameworks); `web/remote.html` is the phone page |
 | `examples/` | Sample programs: valid ones, ones with lexical, syntax and semantic errors, rule analysis (`08`) and a thermostat with ELSE IF and arithmetic (`09`) |
