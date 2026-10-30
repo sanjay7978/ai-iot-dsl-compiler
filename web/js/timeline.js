@@ -37,6 +37,11 @@ function effectOf(device, sensor) {
 }
 
 // Builds the day: sensor curves + state schedules, simulated with feedback.
+// A sensor called hour / clock follows the simulated time; occupancy / people
+// follows office hours.
+const isClock = (n) => /^(hour|hours|clock|time_of_day|time)$/i.test(n) || /_hour$/i.test(n);
+const isPeople = (n) => /occupan|people|persons|visitors/i.test(n);
+
 export function buildDay(result, seed = 7) {
   const rand = rng(seed);
   const specs = sensorSpecs(result);
@@ -95,6 +100,7 @@ export function buildDay(result, seed = 7) {
   for (const s of specs.filter((x) => x.type === "NUMBER")) {
     if (has(s.name, /soil|moist/)) value[s.name] = curve[s.name].soilStart;
     else if (has(s.name, /light|lux|bright|sun/)) value[s.name] = 0;
+    else if (isClock(s.name) || isPeople(s.name)) value[s.name] = 0;
     else value[s.name] = along(s.name, wave(0));
   }
 
@@ -124,6 +130,11 @@ export function buildDay(result, seed = 7) {
       else if (has(s.name, /humid/)) v += 0.1 * (along(s.name, -wave(next)) - v) + noise * 3;
       else if (has(s.name, /soil|moist/)) v -= 0.25 + 0.35 * daylight(h) + (rand() - 0.5) * 0.1;
       else if (has(s.name, /light|lux|bright|sun/)) v = curve[s.name].hi * daylight(next) * (0.85 + rand() * 0.15);
+      else if (isClock(s.name)) { value[s.name] = Math.min(23.99, next); continue; }   // the hour of the simulated day
+      else if (isPeople(s.name)) {   // people arrive in the morning and leave in the evening
+        value[s.name] = next >= 8 && next < 18.5 ? (k % 6 === 0 ? 1 + Math.floor(rand() * 4) : Math.max(1, v)) : 0;
+        continue;
+      }
       else v = along(s.name, Math.sin((2 * Math.PI * next) / 8)) + noise;
       for (const d of devices) {
         const dev = run.devices[d];

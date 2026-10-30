@@ -1,0 +1,29 @@
+# Office energy saver: lights, cooling and monitors follow people, daylight and working hours
+SENSOR occupancy   : NUMBER
+SENSOR light_level : NUMBER
+SENSOR temperature : NUMBER
+SENSOR hour        : NUMBER
+SENSOR window      : STATE
+DEVICE desk_lights, ac, heater, monitors
+
+# Lights: off when nobody is in, dimmer the more daylight there is
+IF occupancy == 0
+THEN turn_off(desk_lights)
+ELSE IF light_level > 800
+THEN set_level(desk_lights, 20)
+ELSE set_level(desk_lights, 100 - light_level / 10)
+
+# Cooling only in working hours, with people in and the window shut
+IF hour >= 9 AND hour < 18 AND occupancy > 0 AND NOT window == OPEN AND temperature > 26
+THEN set_level(ac, (temperature - 22) * 10)
+ELSE turn_off(ac)
+
+# Heating when it is cold and someone is working
+IF temperature < 18 AND occupancy > 0 AND window == CLOSED
+THEN turn_on(heater)
+ELSE turn_off(heater)
+
+# Monitors off at night
+IF hour < 8 OR hour > 19
+THEN turn_off(monitors)
+ELSE turn_on(monitors)

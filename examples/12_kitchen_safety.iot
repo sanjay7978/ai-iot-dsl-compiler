@@ -1,0 +1,25 @@
+# Kitchen safety: smoke, gas and heat control the exhaust fan, gas valve, alarm and sprinkler
+SENSOR smoke       : NUMBER
+SENSOR gas_level   : NUMBER
+SENSOR temperature : NUMBER
+SENSOR stove       : STATE
+DEVICE exhaust_fan, gas_valve, alarm, sprinkler
+
+# Danger: a gas leak or heavy smoke shuts the gas valve and sounds the alarm
+IF gas_level > 300 OR smoke > 70
+THEN turn_off(gas_valve)
+     turn_on(alarm)
+ELSE turn_on(gas_valve)
+     turn_off(alarm)
+
+# Exhaust fan: full speed when the air is bad, half speed while cooking
+IF gas_level > 300 OR smoke > 40
+THEN turn_on(exhaust_fan)
+ELSE IF stove == ON
+THEN set_level(exhaust_fan, 50)
+ELSE turn_off(exhaust_fan)
+
+# Fire: very hot and very smoky at the same time
+IF temperature > 60 AND smoke > 70
+THEN turn_on(sprinkler)
+ELSE turn_off(sprinkler)
