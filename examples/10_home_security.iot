@@ -1,0 +1,25 @@
+# Home security: motion, the front door and darkness control the alarm, lock and lights
+SENSOR motion      : STATE
+SENSOR front_door  : STATE
+SENSOR armed       : STATE
+SENSOR light_level : NUMBER
+DEVICE alarm, door_lock, hall_light, porch_light
+
+# Lock the front door whenever the house is armed
+IF armed == ON
+THEN turn_on(door_lock)
+ELSE turn_off(door_lock)
+
+# Intruder: motion or an open door while the house is armed
+IF armed == ON AND (motion == ON OR front_door == OPEN)
+THEN turn_on(alarm)
+     set_level(hall_light, 100)
+ELSE turn_off(alarm)
+     turn_off(hall_light)
+
+# Porch light: bright when someone is outside in the dark, dim otherwise at night
+IF light_level < 20 AND motion == ON
+THEN turn_on(porch_light)
+ELSE IF light_level < 20
+THEN set_level(porch_light, 30)
+ELSE turn_off(porch_light)

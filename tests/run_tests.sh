@@ -147,6 +147,16 @@ run_c "thermostat: idle"         examples/09_thermostat.iot "cooler +OFF" window
 run_c "CSE stays correct with ELSE IF" build/cse_branch.iot "g +ON" d=OPEN t=35
 run_c "rule analysis example compiles" examples/08_rule_analysis.iot "fan +OFF" temperature=35 door=OPEN
 
+echo "--- New examples: home security and air quality"
+check examples/10_home_security.iot 0 "3 rules"
+check examples/11_air_quality.iot   0 "3 rules"
+run_c "security: intruder -> alarm"       examples/10_home_security.iot "alarm +ON" armed=ON motion=ON front_door=CLOSED light_level=50
+run_c "security: disarmed -> no alarm"    examples/10_home_security.iot "alarm +OFF" armed=OFF motion=ON front_door=OPEN light_level=50
+run_c "security: dark, nobody -> dim"     examples/10_home_security.iot "porch_light +ON \(level 30\)" armed=OFF motion=OFF front_door=CLOSED light_level=5
+run_c "air: vent in proportion to CO2"    examples/11_air_quality.iot "vent +ON \(level 50\)" co2=1000 humidity=50 occupancy=0 window=CLOSED
+run_c "air: window open -> vent off"      examples/11_air_quality.iot "vent +OFF" co2=1500 humidity=50 occupancy=2 window=OPEN
+run_c "air: dry -> humidifier"            examples/11_air_quality.iot "humidifier +ON" co2=400 humidity=30 occupancy=1 window=CLOSED
+
 echo "--- grammar analysis, English, quick fixes, traces"
 out=$(./iotc --grammar)
 printf '%s' "$out" | grep -q "LL(1): no conflicts" && ok "grammar is LL(1)" || bad "grammar is LL(1)"
@@ -173,16 +183,16 @@ json_has "all four targets with line maps" "${DECLS}IF t > 1 THEN turn_on(f)" "[
 
 echo "--- every target gives the same result (C, Python, JavaScript; Arduino compiles)"
 mkdir -p build/xt && cp runtime/iot_runtime.js runtime/iot_runtime.py build/xt/
-for ex in 01_basic 02_smart_home 03_greenhouse 07_optimization 08_rule_analysis 09_thermostat; do
+for ex in 01_basic 02_smart_home 03_greenhouse 07_optimization 08_rule_analysis 09_thermostat 10_home_security 11_air_quality; do
     ./iotc examples/$ex.iot -o build/xt/p.c > /dev/null
     ./iotc examples/$ex.iot --target python -o build/xt/p.py > /dev/null
     ./iotc examples/$ex.iot --target js -o build/xt/p.js > /dev/null
     ./iotc examples/$ex.iot --target arduino -o build/xt/p.ino > /dev/null
     cc -std=c99 -Wall -Werror -Iruntime build/xt/p.c runtime/iot_runtime.c -o build/xt/pc 2> /dev/null || { bad "$ex: C build"; continue; }
     same=1
-    for A in "temperature=31 door=OPEN window=CLOSED outside=2 humidity=35 motion=ON soil_moisture=20 light_level=150 rain=FALSE" \
-             "temperature=15.5 door=CLOSED window=OPEN outside=20 humidity=50 motion=OFF soil_moisture=60 light_level=900 rain=TRUE" \
-             "temperature=36 door=OPEN window=CLOSED outside=10 humidity=39.5 motion=OFF soil_moisture=34.9 light_level=200 rain=FALSE"; do
+    for A in "temperature=31 door=OPEN window=CLOSED outside=2 humidity=35 motion=ON soil_moisture=20 light_level=150 rain=FALSE front_door=OPEN armed=ON co2=1000 occupancy=2" \
+             "temperature=15.5 door=CLOSED window=OPEN outside=20 humidity=50 motion=OFF soil_moisture=60 light_level=900 rain=TRUE front_door=CLOSED armed=OFF co2=1500 occupancy=0" \
+             "temperature=36 door=OPEN window=CLOSED outside=10 humidity=39.5 motion=OFF soil_moisture=34.9 light_level=200 rain=FALSE front_door=CLOSED armed=ON co2=650 occupancy=1"; do
         c=$(build/xt/pc $A 2>/dev/null); p=$(python3 build/xt/p.py $A 2>/dev/null); j=$(node build/xt/p.js $A 2>/dev/null)
         [ "$c" = "$p" ] && [ "$c" = "$j" ] || same=0
     done

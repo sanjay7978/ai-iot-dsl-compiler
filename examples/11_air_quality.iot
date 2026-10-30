@@ -1,0 +1,28 @@
+# Air quality: CO2, humidity and people in the room control the vent, purifier and humidifiers
+SENSOR co2       : NUMBER
+SENSOR humidity  : NUMBER
+SENSOR occupancy : NUMBER
+SENSOR window    : STATE
+DEVICE vent, purifier, humidifier, dehumidifier
+
+# Ventilation: full speed above 1200 ppm, otherwise in proportion to how far CO2 is above 800
+IF co2 > 1200 AND window == CLOSED
+THEN turn_on(vent)
+ELSE IF co2 > 800 AND window == CLOSED
+THEN set_level(vent, (co2 - 800) / 4)
+ELSE turn_off(vent)
+
+# Clean the air while people are in the room with the window closed
+IF occupancy >= 1 AND window == CLOSED
+THEN turn_on(purifier)
+ELSE turn_off(purifier)
+
+# Keep humidity between 40 and 60 percent
+IF humidity < 40
+THEN turn_on(humidifier)
+     turn_off(dehumidifier)
+ELSE IF humidity > 60
+THEN turn_on(dehumidifier)
+     turn_off(humidifier)
+ELSE turn_off(humidifier)
+     turn_off(dehumidifier)
