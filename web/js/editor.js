@@ -6,7 +6,7 @@ import { state, fresh } from "./state.js";
 import { colourClasses, KEYWORDS, STATES } from "./highlight.js";
 
 const LINE_HEIGHT = 22;
-const PAD_X = 16, PAD_Y = 14;
+const PAD_X = 18, PAD_Y = 14;   // must match .code-layer padding in studio.css
 let el;
 let charWidth = 7.8;
 

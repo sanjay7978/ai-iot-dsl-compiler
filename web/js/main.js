@@ -17,6 +17,8 @@ import { shareProgram, programFromUrl } from "./share.js";
 import { printReport } from "./report.js";
 import { initPalette, setCommands } from "./palette.js";
 import { initRemote, openRemote } from "./remote-host.js";
+import { initShell, setProgramName } from "./shell.js";
+import { renderOverview, phaseMetrics } from "./charts.js";
 
 // ---- theme ---------------------------------------------------------------------------
 
@@ -26,8 +28,12 @@ function currentTheme() {
 }
 function toggleTheme() {
   const next = currentTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try { localStorage.setItem("iotc-theme", next); } catch (e) { /* storage unavailable */ }
+  const apply = () => {
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("iotc-theme", next); } catch (e) { /* storage unavailable */ }
+  };
+  if (document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) document.startViewTransition(apply);
+  else apply();
 }
 
 // ---- tabs -----------------------------------------------------------------------------
@@ -99,13 +105,24 @@ function showResult(r, quiet) {
   else setStatus("fail", `Found ${errs} error${errs === 1 ? "" : "s"}`);
 
   const status = Object.fromEntries(r.phases.map((p) => [p.id, p.status]));
-  document.querySelectorAll(".step").forEach((s) => {
+  const metrics = phaseMetrics(r);
+  document.querySelectorAll(".step").forEach((s, k) => {
     s.dataset.status = status[s.dataset.step] || "";
+    s.style.setProperty("--k", k);
     const p = r.phases.find((x) => x.id === s.dataset.step);
     s.title = p ? `${p.name}: ${{ ok: "passed", error: "errors found", skipped: "not run" }[p.status]}` : "";
+    const sub = s.querySelector(".step-sub");
+    if (sub) sub.textContent = metrics[s.dataset.step] || sub.dataset.idle;
   });
+  if (!quiet) {
+    const pipe = document.querySelector(".pipeline");
+    pipe.classList.remove("compiling");
+    void pipe.offsetWidth;
+    pipe.classList.add("compiling");
+  }
 
   renderPanes(r);
+  renderOverview(r);
   renderCode();
   setupHome(r);
 
@@ -118,7 +135,7 @@ function showResult(r, quiet) {
 
   if (!quiet) {
     if (r.stats.errors) showTab("problems");
-    else if (state.activeTab === "problems" && !r.errors.length) showTab("tokens");
+    else if (state.activeTab === "problems" && !r.errors.length) showTab("overview");
   }
 }
 
@@ -126,6 +143,7 @@ function showResult(r, quiet) {
 
 function loadSource(text, name = "") {
   state.exampleName = name;
+  setProgramName(name || "untitled");
   setSource(text);
   compile();
 }
@@ -153,7 +171,8 @@ async function loadExamples() {
   }
   const shared = await programFromUrl();
   if (shared) {
-    loadSource(shared, "shared program");
+    const named = location.hash.match(/[#&]n=([\w-]+)/);
+    loadSource(shared, named ? named[1] : "shared program");
     toast("Loaded the program from the link");
   } else if (state.examples.length && !getSource()) {
     loadExample(state.examples[0].name);
@@ -352,6 +371,13 @@ function initButtons() {
     state.result = null;
     state.compiledSource = null;
     resetPanes();
+    renderOverview(null);
+    setProgramName("untitled");
+    document.querySelectorAll(".step").forEach((s) => {
+      s.dataset.status = "";
+      const sub = s.querySelector(".step-sub");
+      if (sub) sub.textContent = sub.dataset.idle;
+    });
     setStatus("", "Ready");
   });
   $("examples").addEventListener("change", () => $("examples").value && loadExample($("examples").value));
@@ -410,7 +436,7 @@ function initCommands() {
     { title: "Toggle light / dark theme", group: "View", run: toggleTheme },
     { title: "Toggle projector mode (larger text)", group: "View", run: () => document.documentElement.classList.toggle("projector") },
   ];
-  [["tokens", "Tokens"], ["ast", "Syntax tree"], ["language", "Language: DFA, FIRST/FOLLOW, LL(1)"], ["symbols", "Symbols"],
+  [["overview", "Overview"], ["tokens", "Tokens"], ["ast", "Syntax tree"], ["language", "Language: DFA, FIRST/FOLLOW, LL(1)"], ["symbols", "Symbols"],
    ["ir", "Intermediate code"], ["code", "Generated code"], ["problems", "Problems"]]
     .forEach(([id, name]) => cmds.push({ title: "Open " + name, group: "Tab", run: () => showTab(id) }));
   [["machine", "Optimizer time machine"], ["cfg", "Control-flow graph"]]
@@ -420,6 +446,7 @@ function initCommands() {
 }
 
 async function init() {
+  initShell();
   initEditor();
   initPanes();
   initLanguage();
@@ -432,7 +459,7 @@ async function init() {
   initHome();
   initButtons();
   initBus();
-  showTab("tokens");
+  showTab("overview");
   document.querySelector(".tabs").scrollLeft = 0;
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(positionIndicator);
   getJson("/api/language").then((l) => { state.language = l; renderLanguage(); }).catch(() => {});

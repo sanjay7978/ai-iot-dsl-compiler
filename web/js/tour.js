@@ -12,7 +12,7 @@ const STEPS = [
     text: "A free AI model turns English into our language. Everything it writes is compiled and checked before it can be used. The microphone accepts speech.",
     act: () => { $("aiInput").value = "If the temperature is above 30 and the door is open, turn on the fan"; } },
   { sel: ".pipeline", title: "Seven compiler phases",
-    text: "Lexer, parser, syntax tree, semantic analysis, intermediate code, optimizer and code generator. Green means passed; red means errors; dashed means not reached. Click any phase to open its output." },
+    text: "Lexer, parser, syntax tree, semantic analysis, intermediate code, optimizer and code generator. Each phase shows what it produced, such as the number of tokens or instructions. Blue means passed, red means errors, and a dashed circle means the phase was not reached. Click any phase to open its output." },
   { sel: "#xrayBtn", title: "Compiler X-ray",
     text: "This plays the compilation step by step using the compiler's real traces: the DFA scanning characters, the parser's call stack, the optimizer passes and code generation. Press Next to start it.",
     act: () => {} },
