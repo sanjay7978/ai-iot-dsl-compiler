@@ -20,13 +20,13 @@ const ICON = {
 export { ICON };
 
 const LINKS = [
-  ["studio.html", "Studio"],
-  ["docs.html", "Docs"],
-  ["examples.html", "Examples"],
-  ["about.html", "About"],
+  ["/studio", "Studio"],
+  ["/docs", "Docs"],
+  ["/examples", "Examples"],
+  ["/about", "About"],
 ];
 
-const page = () => (location.pathname.split("/").pop() || "index.html");
+const page = () => location.pathname.replace(/\.html$/, "").replace(/\/$/, "") || "/";
 
 export function currentTheme() {
   return document.documentElement.dataset.theme ||
@@ -50,19 +50,19 @@ function header() {
     `<a href="${href}" class="nav-link${here === href ? " current" : ""}"${here === href ? ' aria-current="page"' : ""}>${label}</a>`).join("");
   return `
   <div class="nav-inner">
-    <a class="wordmark" href="index.html" aria-label="Kelvin home">${LOGO}<span>Kelvin</span><small>IoT DSL compiler</small></a>
+    <a class="wordmark" href="/" aria-label="Kelvin home">${LOGO}<span>Kelvin</span><small>IoT DSL compiler</small></a>
     <nav class="nav-links" aria-label="Main">${links}</nav>
     <div class="nav-actions">
       <a class="icon-btn" href="${REPO}" target="_blank" rel="noopener" aria-label="Source code on GitHub" title="Source code on GitHub">${ICON.github}</a>
       <button class="icon-btn theme-btn" type="button" data-theme-toggle aria-label="Switch theme" title="Switch theme">${ICON.sun}${ICON.moon}</button>
-      <a class="btn btn-primary nav-cta" href="studio.html">Open Studio ${ICON.arrow}</a>
+      <a class="btn btn-primary nav-cta" href="/studio">Open Studio ${ICON.arrow}</a>
       <button class="icon-btn nav-menu" type="button" aria-label="Menu" aria-expanded="false" aria-controls="navSheet">${ICON.menu}</button>
     </div>
   </div>
   <div class="nav-sheet" id="navSheet" hidden>
     ${links}
     <a href="${REPO}" target="_blank" rel="noopener" class="nav-link">GitHub</a>
-    <a class="btn btn-primary" href="studio.html">Open Studio ${ICON.arrow}</a>
+    <a class="btn btn-primary" href="/studio">Open Studio ${ICON.arrow}</a>
   </div>`;
 }
 
@@ -71,16 +71,16 @@ function footer(stats) {
   return `
   <div class="foot-inner">
     <div class="foot-brand">
-      <a class="wordmark" href="index.html">${LOGO}<span>Kelvin</span></a>
+      <a class="wordmark" href="/">${LOGO}<span>Kelvin</span></a>
       <p>An AI-assisted compiler for IoT automation rules. A hand-written C++ compiler that turns plain-English intent into checked, optimized code for C, Arduino, Python and JavaScript.</p>
       <p class="foot-meta"><span class="badge"><i class="led"></i>${tests}</span></p>
     </div>
     <div class="foot-col"><h4>Product</h4>
-      <a href="studio.html">Studio</a><a href="studio.html#home">Digital twin</a><a href="examples.html">Examples</a><a href="docs.html#remote">Phone remote</a></div>
+      <a href="/studio">Studio</a><a href="/studio#home">Digital twin</a><a href="/examples">Examples</a><a href="/docs#remote">Phone remote</a></div>
     <div class="foot-col"><h4>Learn</h4>
-      <a href="docs.html#quick-start">Quick start</a><a href="docs.html#language">Language reference</a><a href="docs.html#grammar">Grammar &amp; LL(1)</a><a href="docs.html#errors">Error catalogue</a></div>
+      <a href="/docs#quick-start">Quick start</a><a href="/docs#language">Language reference</a><a href="/docs#grammar">Grammar &amp; LL(1)</a><a href="/docs#errors">Error catalogue</a></div>
     <div class="foot-col"><h4>Project</h4>
-      <a href="about.html">About</a><a href="about.html#architecture">Architecture</a><a href="about.html#team">Team</a><a href="${REPO}" target="_blank" rel="noopener">GitHub</a></div>
+      <a href="/about">About</a><a href="/about#architecture">Architecture</a><a href="/about#team">Team</a><a href="${REPO}" target="_blank" rel="noopener">GitHub</a></div>
   </div>
   <div class="foot-base">
     <span>Compiler Design project · built with a hand-written C++17 compiler, Python standard library and vanilla JavaScript</span>

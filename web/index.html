@@ -11,7 +11,7 @@
   <script>
     try { var t = localStorage.getItem("iotc-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
     // Old share links pointed at the root page; the program now opens in the Studio.
-    if (/^#p=/.test(location.hash)) location.replace("studio.html" + location.hash);
+    if (/^#p=/.test(location.hash)) location.replace("/studio" + location.hash);
   </script>
   <link rel="preload" href="fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
@@ -30,7 +30,7 @@
     <!-- Hero: headline + a live compiler demo -->
     <section class="hero">
       <div class="container hero-copy">
-        <a class="hero-tag" href="docs.html#ai">
+        <a class="hero-tag" href="/docs#ai">
           <span class="badge ember"><i class="led"></i><span id="aiTag">AI</span></span>
           <span>Runs offline with a local model. Every AI answer is re-checked by the compiler.</span>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -38,9 +38,9 @@
         <h1 class="display">Write a <em>sentence</em>.<br>Ship <em>firmware</em>.</h1>
         <p class="lede">Kelvin is an AI-assisted compiler for IoT automation. Describe a rule in plain English, and a hand-written C++ compiler checks it through seven phases and generates code for C, Arduino, Python and JavaScript.</p>
         <div class="hero-ctas">
-          <a class="btn btn-primary btn-lg" href="studio.html">Open the Studio
+          <a class="btn btn-primary btn-lg" href="/studio">Open the Studio
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-          <a class="btn btn-lg" href="docs.html">Read the docs</a>
+          <a class="btn btn-lg" href="/docs">Read the docs</a>
         </div>
       </div>
 
@@ -164,7 +164,7 @@
           <div class="tile-copy">
             <h3>Compiler X-ray</h3>
             <p>Replays a real compilation from the compiler's own traces: the DFA consumes characters, the parser's call stack grows and shrinks, the tree builds node by node, then the optimizer and code generator do their work.</p>
-            <a class="tile-link" href="studio.html">Watch it compile →</a>
+            <a class="tile-link" href="/studio">Watch it compile →</a>
           </div>
           <div class="xray-art" aria-hidden="true">
             <div class="xa-row"><span class="xa-k">lex</span><span class="xa-bar"><i style="--w:100%"></i></span></div>
@@ -223,7 +223,7 @@
             <h3>Share links and reports</h3>
             <p>A program fits in a compressed link. The report prints every phase, from tokens to C, as a clean PDF.</p>
           </div>
-          <div class="share-art mono" aria-hidden="true"><span>studio.html#p=</span><b>zq1VKTs2PSU…</b></div>
+          <div class="share-art mono" aria-hidden="true"><span>/studio#p=</span><b>zq1VKTs2PSU…</b></div>
         </article>
       </div>
     </section>
@@ -277,8 +277,8 @@
     <section class="cta container" data-reveal>
       <h2>From <em>intent</em> to firmware,<br>one keystroke away.</h2>
       <div class="hero-ctas">
-        <a class="btn btn-primary btn-lg" href="studio.html">Open the Studio</a>
-        <a class="btn btn-lg" href="examples.html">Browse examples</a>
+        <a class="btn btn-primary btn-lg" href="/studio">Open the Studio</a>
+        <a class="btn btn-lg" href="/examples">Browse examples</a>
       </div>
       <p class="cta-run mono">make run <span>→ http://127.0.0.1:8000</span></p>
     </section>

@@ -150,6 +150,11 @@ class Remote:
 REMOTE = Remote()
 REMOTE_PUBLIC = {"/remote.html", "/api/remote/config", "/api/remote/state"}
 
+# Website pages are served at clean addresses (/studio); the old .html addresses redirect there.
+PAGES = {"/studio": "/studio.html", "/docs": "/docs.html", "/examples": "/examples.html", "/about": "/about.html"}
+OLD_PAGES = {html: clean for clean, html in PAGES.items()}
+OLD_PAGES["/index.html"] = "/"
+
 
 # --------------------------------------------------------------------- HTTP handler
 
@@ -213,6 +218,22 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(200, REMOTE.config)
         if path == "/api/remote/events":
             return self.stream_events()
+        if path in OLD_PAGES:
+            query = urlparse(self.path).query
+            self.send_response(301)
+            self.send_header("Location", OLD_PAGES[path] + ("?" + query if query else ""))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if path != "/" and path.endswith("/") and path.rstrip("/") in PAGES:
+            # /studio/ would break the page's relative links, so send it to /studio
+            self.send_response(301)
+            self.send_header("Location", path.rstrip("/"))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if path in PAGES:
+            self.path = PAGES[path] + ("?" + urlparse(self.path).query if urlparse(self.path).query else "")
         return super().do_GET()
 
     def do_POST(self):
