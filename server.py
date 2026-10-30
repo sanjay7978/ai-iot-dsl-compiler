@@ -319,8 +319,19 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
+def port_taken(port):
+    """True if something already answers on this port on the laptop. macOS lets a
+    second server bind 0.0.0.0 next to one on 127.0.0.1, and the browser then
+    talks to the old one, so check before starting."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 if __name__ == "__main__":
     try:
+        if port_taken(PORT):
+            raise OSError("port in use")
         server = Server((HOST, PORT), Handler)
     except OSError:
         raise SystemExit(
