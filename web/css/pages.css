@@ -147,6 +147,7 @@
 .avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 10px; font: 600 15px var(--sans); color: var(--accent-ink); background: var(--accent); }
 .member b { font-size: 16px; font-weight: 600; }
 .member span { color: var(--muted); font-size: 13.5px; }
+.member .avatar { color: var(--accent-ink); font-size: 15px; }
 .member.placeholder { border-style: dashed; }
 .team-note { margin-top: 14px; color: var(--faint); font-size: 13px; }
 
