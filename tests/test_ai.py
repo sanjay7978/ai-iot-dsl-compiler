@@ -62,5 +62,22 @@ class HelpersTest(unittest.TestCase):
         self.assertIn("Fix:", text)
 
 
+
+class MeaningCheckTest(unittest.TestCase):
+    """The AI's DSL must keep the sentence's meaning, not just compile."""
+    sentence = "if the temperature is above 30 and the door is open, turn on the fan"
+
+    def test_dropped_condition_is_caught(self):
+        # A real answer from a local model: compiles, but loses "30" and the door.
+        dsl = "SENSOR temperature : NUMBER\nSENSOR door : STATE\nDEVICE fan\n\nIF temperature > 3\nTHEN turn_on(fan)\n"
+        problems = ai.meaning_problems(self.sentence, ai.compile_check(dsl))
+        self.assertTrue(any("30" in p for p in problems), problems)
+        self.assertTrue(any("door" in p for p in problems), problems)
+
+    def test_faithful_answer_passes(self):
+        dsl = "SENSOR temperature : NUMBER\nSENSOR door : STATE\nDEVICE fan\n\nIF temperature > 30 AND door == OPEN\nTHEN turn_on(fan)\n"
+        self.assertEqual(ai.meaning_problems(self.sentence, ai.compile_check(dsl)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,8 @@ function countNodes(n) { return n ? 1 + (n.children || []).reduce((a, c) => a + 
 export function phaseMetrics(r) {
   const errs = (phase) => r.errors.filter((e) => e.phase === phase && e.severity !== "warning").length;
   const c = r.targets && r.targets.find((t) => t.id === "c");
-  return {
+  const status = Object.fromEntries(r.phases.map((p) => [p.id, p.status]));
+  const m = {
     lexer: errs("lexical") ? plural(errs("lexical"), "error") : plural(r.stats.tokens, "token"),
     parser: errs("syntax") ? plural(errs("syntax"), "error") : r.ast ? "LL(1) ✓" : "–",
     ast: !r.ast ? "not built" : r.phases.find((p) => p.id === "ast").status === "ok" ? plural(countNodes(r.ast), "node") : "incomplete",
@@ -25,6 +26,8 @@ export function phaseMetrics(r) {
     optimizer: r.ir.length ? `${r.stats.irBefore} → ${r.stats.irAfter}` : "not run",
     codegen: c ? `${c.code.trimEnd().split("\n").length} lines C` : "not run",
   };
+  for (const id in m) if (status[id] === "skipped") m[id] = "not run";
+  return m;
 }
 
 export function renderOverview(r) {

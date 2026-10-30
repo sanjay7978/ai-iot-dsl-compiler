@@ -259,6 +259,26 @@ def clean_output(text):
     return "\n".join(lines).strip() + "\n" if lines else ""
 
 
+def meaning_problems(text, result):
+    """Checks that the DSL keeps the meaning of the English, beyond compiling.
+
+    Small local models sometimes drop part of a sentence (for example
+    "above 30 and the door is open" becoming "> 3"). The result still compiles,
+    so we also check that every number in the English appears in the program
+    and that every declared sensor is used by a rule.
+    """
+    problems = []
+    used_numbers = {float(t["lexeme"]) for t in result.get("tokens", []) if t.get("category") == "number"}
+    for n in re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])", text):
+        if float(n) not in used_numbers:
+            problems.append(f"the sentence mentions {n} but the program does not use it")
+    if result.get("ast"):   # the symbol table is only meaningful once the program parses
+        for s in result.get("symbols", []):
+            if s.get("kind") == "sensor" and s.get("uses", 1) == 0:
+                problems.append(f"sensor '{s['name']}' is declared but no rule uses it")
+    return problems
+
+
 def nl_to_dsl(text, context=""):
     text = (text or "").strip()
     if not text:
@@ -277,16 +297,33 @@ def nl_to_dsl(text, context=""):
             dsl = clean_output(provider.chat(NL2DSL_SYSTEM, user))
             result = compile_check(dsl)
             attempts = 1
-            if _errors(result):            # one repair attempt using the compiler's messages
-                msgs = "\n".join(f"- line {e['line']}: {e['message']}" for e in _errors(result))
-                repair = (f"{user}\n{dsl}\nThe compiler reported these errors:\n{msgs}\n"
+            issues = [f"line {e['line']}: {e['message']}" for e in _errors(result)] or meaning_problems(text, result)
+            if issues:                     # one repair attempt using the compiler's messages
+                msgs = "\n".join(f"- {m}" for m in issues)
+                repair = (f"{user}\n{dsl}\nThe compiler found these problems:\n{msgs}\n"
+                          "Translate the whole English sentence, keeping every condition and number. "
                           "Reply with the corrected complete DSL only.")
                 dsl = clean_output(provider.chat(NL2DSL_SYSTEM, repair))
                 result = compile_check(dsl)
                 attempts = 2
-            return {"ok": True, "dsl": dsl, "provider": provider.name, "model": provider.model,
-                    "attempts": attempts, "valid": not _errors(result),
-                    "errors": [e["message"] for e in _errors(result)]}
+            lost = [] if _errors(result) else meaning_problems(text, result)
+            if lost:
+                # The model's program compiles but leaves part of the sentence out.
+                # Prefer the rule-based converter if it keeps the full meaning.
+                offline, _ = offline_nl_to_dsl(text)
+                if offline:
+                    off_result = compile_check(offline)
+                    if not _errors(off_result) and not meaning_problems(text, off_result):
+                        return {"ok": True, "dsl": offline, "provider": "Offline rules", "model": None,
+                                "attempts": attempts, "valid": True, "errors": [],
+                                "note": f"{provider.name}'s answer left out part of the sentence ({lost[0]}), "
+                                        "so the built-in converter was used instead."}
+            out = {"ok": True, "dsl": dsl, "provider": provider.name, "model": provider.model,
+                   "attempts": attempts, "valid": not _errors(result),
+                   "errors": [e["message"] for e in _errors(result)]}
+            if lost:
+                out["note"] = "Check this against your sentence: " + "; ".join(lost) + "."
+            return out
         except (AIError, subprocess.TimeoutExpired) as e:
             note = f"{provider.name} was unavailable ({str(e)[:120]}), so the offline converter was used."
 

@@ -71,7 +71,7 @@ function drawFilters() {
     const examples = await getJson("/api/examples");
     cards = await Promise.all(examples.map(async (ex) => {
       const result = await postJson("/api/compile", { source: ex.source });
-      return { ...ex, result, description: describe(ex.source), tags: tagsFor(result), link: "/studio#p=" + (await encodeProgram(ex.source)) + "&n=" + ex.name.replace(/^\d+_/, "") };
+      return { ...ex, result, description: describe(ex.source), tags: tagsFor(result), link: "studio.html#p=" + (await encodeProgram(ex.source)) + "&n=" + ex.name.replace(/^\d+_/, "") };
     }));
     drawFilters();
     draw();
