@@ -1,0 +1,62 @@
+/* graphs.css — SVG drawings shared by the Studio and the website:
+   the syntax tree, the control-flow graph and the scanner DFA (drawn by js/graph.js). */
+
+/* ---------- Graphs (AST, CFG) --------------------------------------------- */
+
+.graph-host { position: relative; flex: 1; min-height: 360px; }
+.graph-svg { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.graph-svg.dragging { cursor: grabbing; }
+.graph-tools { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 4px; z-index: 2; }
+.graph-tools button {
+  min-width: 30px; height: 28px; padding: 0 8px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  font-size: 13px; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.graph-tools button:hover { color: var(--ink); border-color: var(--line-strong); transform: translateY(-1px); }
+
+.g-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.4; transition: opacity 0.25s ease; }
+.g-arrow { fill: var(--line-strong); }
+.g-node { cursor: pointer; transition: opacity 0.3s ease, transform 0.3s ease; }
+.g-node rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.2; transition: stroke 0.15s ease, fill 0.15s ease; }
+.g-node:hover rect { stroke: var(--ink); }
+.g-node text { font: 600 11.5px var(--sans); fill: var(--ink); }
+.g-node .g-val { font: 500 11.5px var(--mono); }
+.g-node.k-program rect, .g-node.k-rule rect { fill: var(--ink); stroke: var(--ink); }
+.g-node.k-program text, .g-node.k-rule text { fill: var(--bg); }
+.g-node.k-block rect { fill: var(--hover); stroke-dasharray: 3 3; }
+.g-node.k-block .g-key { fill: var(--muted); font-weight: 500; }
+.g-node.k-logic rect { stroke: var(--syn-kw); }
+.g-node.k-logic text { fill: var(--syn-kw); font-family: var(--mono); font-weight: 700; }
+.g-node.k-compare rect, .g-node.k-arith rect { fill: var(--panel-2); }
+.g-node.k-action rect { stroke: var(--accent); fill: var(--accent-soft); }
+.g-node.k-number .g-val, .g-node.k-type .g-val { fill: var(--syn-num); }
+.g-node.k-state .g-val { fill: var(--syn-state); }
+.g-node.k-decl rect { fill: var(--panel-2); stroke: var(--muted); }
+.xr-hidden { opacity: 0; pointer-events: none; }
+
+.cfg-block rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.2; transition: stroke 0.15s ease; }
+.cfg-block:hover rect { stroke: var(--accent); }
+.cfg-head { font: 700 12px var(--sans); fill: var(--ink); }
+.cfg-sep { stroke: var(--line); }
+.cfg-code { font: 11.5px var(--mono); fill: var(--ink); }
+.cfg-comment { font: italic 11.5px var(--mono); fill: var(--syn-comment); }
+.cfg-live { font: 10.5px var(--mono); fill: var(--syn-num); }
+.cfg-label { font: 600 10.5px var(--sans); fill: var(--muted); }
+.cfg-edge { stroke-width: 1.5; }
+
+
+.dfa-host { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); padding: 6px; }
+.dfa-svg { width: 100%; height: auto; max-height: 420px; display: block; }
+.dfa-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.3; transition: stroke 0.12s ease; }
+.dfa-edge.active { stroke: var(--accent); stroke-width: 2.6; }
+.dfa-label { font: 10px var(--mono); fill: var(--faint); }
+.dfa-label.active { fill: var(--accent); font-weight: 700; }
+.dfa-state circle { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.4; transition: fill 0.12s ease, stroke 0.12s ease; }
+.dfa-state.accepting circle.inner { fill: none; }
+.dfa-state.error circle { stroke: var(--error); }
+.dfa-state text { font: 600 10px var(--mono); fill: var(--ink); }
+.dfa-state.active circle { fill: var(--accent); stroke: var(--accent); }
+.dfa-state.active circle.inner { stroke: var(--accent-ink); fill: none; }
+.dfa-state.active text { fill: var(--accent-ink); }
+.dfa-state.previous circle { stroke: var(--accent); stroke-width: 2; }
+

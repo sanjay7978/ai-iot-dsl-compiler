@@ -197,4 +197,5 @@ printf '%s' "${DECLS}IF t > 1 THEN turn_on(f)" | ./iotc --json | python3 -m json
 
 echo
 echo "$pass passed, $fail failed"
+mkdir -p build && printf '{"passed": %d, "failed": %d}\n' "$pass" "$fail" > build/test-summary.json
 [ "$fail" -eq 0 ]

@@ -8,7 +8,7 @@ OBJ   := $(SRC:src/%.cpp=build/%.o)
 HDRS  := $(wildcard src/*.h)
 BIN   := iotc
 
-.PHONY: all run remote test demo clean
+.PHONY: all run remote test stats demo clean
 
 all: $(BIN)
 
@@ -32,6 +32,11 @@ remote: $(BIN)
 test: $(BIN)
 	sh tests/run_tests.sh
 	python3 -m unittest discover -s tests -q
+	python3 tools/project_stats.py
+
+# Refresh the real project numbers shown on the website (web/data/project.json)
+stats: $(BIN)
+	python3 tools/project_stats.py
 
 # Compile a DSL program to C, build it with the runtime and run it, e.g.
 #   make demo FILE=examples/02_smart_home.iot ARGS="temperature=32 door=OPEN motion=OFF humidity=30"

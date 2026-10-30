@@ -1,0 +1,9 @@
+Fonts bundled with the website (Latin subsets, woff2):
+
+  geist.woff2, geist-mono.woff2           Geist and Geist Mono, (c) Vercel
+  instrument-serif*.woff2                 Instrument Serif, (c) Instrument
+
+All are licensed under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org). They were taken from the Fontsource packages
+@fontsource-variable/geist, @fontsource-variable/geist-mono and
+@fontsource/instrument-serif (version 5.2.5).
