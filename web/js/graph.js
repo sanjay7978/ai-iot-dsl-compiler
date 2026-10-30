@@ -2,8 +2,8 @@
 
 import { svgEl, textWidth, panZoom, escapeHtml } from "./util.js";
 
-const MONO = "11.5px ui-monospace, SFMono-Regular, Menlo, monospace";
-const SANS = "600 11.5px ui-sans-serif, system-ui, -apple-system, sans-serif";
+const MONO = '11.5px "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
+const SANS = '600 11.5px Geist, ui-sans-serif, system-ui, -apple-system, sans-serif';
 
 function nodeText(n) {
   if (n.kind === "logic") return { key: "", value: n.label };
