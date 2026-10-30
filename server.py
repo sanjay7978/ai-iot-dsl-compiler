@@ -148,7 +148,7 @@ class Remote:
 
 
 REMOTE = Remote()
-REMOTE_PUBLIC = {"/remote.html", "/js/remote.js", "/style.css", "/api/remote/config", "/api/remote/state"}
+REMOTE_PUBLIC = {"/remote.html", "/api/remote/config", "/api/remote/state"}
 
 
 # --------------------------------------------------------------------- HTTP handler

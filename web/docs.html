@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docs · Kelvin</title>
+  <meta name="description" content="Kelvin documentation: quick start, the IoT rule language, grammar and LL(1) analysis, code targets, error catalogue, AI setup, phone remote and command-line usage.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='1' width='22' height='22' rx='6.5' fill='%23171512'/%3E%3Cpath d='M8 5.5v8.2' stroke='%23f3f0ea' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='16.6' r='2.6' fill='%23ff6a2b'/%3E%3Cpath d='m13.2 8.6 4 3.4-4 3.4' fill='none' stroke='%23f3f0ea' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script>try { var t = localStorage.getItem("iotc-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/graphs.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="site">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-nav" id="siteNav"></header>
+
+  <div class="container docs-layout">
+    <aside class="docs-side" aria-label="Documentation sections">
+      <p class="docs-side-title">Documentation</p>
+      <nav id="docsToc">
+        <a href="#quick-start">Quick start</a>
+        <a href="#language">The language</a>
+        <a href="#conditions">Conditions &amp; operators</a>
+        <a href="#actions">Actions</a>
+        <a href="#grammar">Grammar &amp; LL(1)</a>
+        <a href="#pipeline">Compiler phases</a>
+        <a href="#targets">Code targets</a>
+        <a href="#errors">Error catalogue</a>
+        <a href="#ai">AI setup</a>
+        <a href="#remote">Phone remote</a>
+        <a href="#cli">Command line</a>
+      </nav>
+    </aside>
+
+    <main class="docs-main prose" id="main">
+      <header class="docs-head">
+        <span class="eyebrow"><b>Docs</b>Kelvin · IoT DSL compiler</span>
+        <h1 class="page-title">Write rules for <em>physical spaces</em>.</h1>
+        <p>Everything you need to write programs in the Kelvin rule language, understand what each compiler phase does, and run the generated code.</p>
+      </header>
+
+      <section id="quick-start">
+        <h2><span class="h-no">01</span>Quick start</h2>
+        <p>You need a C++17 compiler, Python 3 and a C compiler (for <em>Build &amp; run</em>). Node.js is optional, for running the JavaScript target.</p>
+        <div class="steps-list">
+          <div><span>1</span><div><b>Build the compiler</b><pre class="cmd"><code>make</code></pre></div></div>
+          <div><span>2</span><div><b>Start the web app</b><pre class="cmd"><code>make run</code></pre><p>Then open <code class="inline">http://127.0.0.1:8000</code>. Use <code class="inline">make remote</code> instead to let phones on the same Wi-Fi join.</p></div></div>
+          <div><span>3</span><div><b>Run the tests</b><pre class="cmd"><code>make test</code></pre><p>Runs the compiler checks, cross-target equivalence tests and the Python unit tests, then refreshes the numbers shown on the home page.</p></div></div>
+        </div>
+      </section>
+
+      <section id="language">
+        <h2><span class="h-no">02</span>The language</h2>
+        <p>A program is a list of <b>declarations</b> followed by <b>rules</b>. Every sensor and device is declared once before it is used. Comments start with <code class="inline">#</code>.</p>
+        <div class="code-frame">
+          <div class="code-frame-bar"><span class="dots"><i></i><i></i><i></i></span><span>smart_home.iot</span></div>
+          <pre id="sampleProgram"></pre>
+        </div>
+        <table class="doc-table">
+          <thead><tr><th>Construct</th><th>Form</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Sensor</td><td><code>SENSOR name : NUMBER</code></td><td>Numeric reading, such as a temperature or humidity.</td></tr>
+            <tr><td>Sensor</td><td><code>SENSOR name : STATE</code></td><td>One of <code>ON OFF OPEN CLOSED TRUE FALSE</code>.</td></tr>
+            <tr><td>Devices</td><td><code>DEVICE fan, light, ac</code></td><td>Something the rules can switch or set to a level.</td></tr>
+            <tr><td>Rule</td><td><code>IF cond THEN actions</code></td><td>Actions are written one after another; no separator needed.</td></tr>
+            <tr><td>Branches</td><td><code>ELSE IF cond THEN … ELSE …</code></td><td>Any number of <code>ELSE IF</code>, at most one <code>ELSE</code>.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="conditions">
+        <h2><span class="h-no">03</span>Conditions &amp; operators</h2>
+        <p>Operators are listed from the loosest to the tightest binding. Parentheses override precedence.</p>
+        <table class="doc-table">
+          <thead><tr><th>Level</th><th>Operators</th><th>Works on</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>OR</code></td><td>true/false</td></tr>
+            <tr><td>2</td><td><code>AND</code></td><td>true/false</td></tr>
+            <tr><td>3</td><td><code>NOT</code></td><td>true/false</td></tr>
+            <tr><td>4</td><td><code>&gt; &lt; &gt;= &lt;= == !=</code></td><td>NUMBER with NUMBER; STATE only with <code>==</code> and <code>!=</code></td></tr>
+            <tr><td>5</td><td><code>+ −</code></td><td>NUMBER</td></tr>
+            <tr><td>6</td><td><code>* /</code> and unary <code>−</code></td><td>NUMBER</td></tr>
+          </tbody>
+        </table>
+        <p class="callout"><b>Rule analysis.</b> After type checking, each condition is put into disjunctive normal form and checked with interval and state-set reasoning. The compiler warns about conditions that can never be true or are always true, <code>ELSE IF</code> branches that can never run, and two rules that set the same device differently for the same inputs, and it gives example inputs.</p>
+      </section>
+
+      <section id="actions">
+        <h2><span class="h-no">04</span>Actions</h2>
+        <table class="doc-table">
+          <thead><tr><th>Action</th><th>Arguments</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>turn_on</code></td><td>device</td><td>Switches the device on at full level.</td></tr>
+            <tr><td><code>turn_off</code></td><td>device</td><td>Switches the device off.</td></tr>
+            <tr><td><code>toggle</code></td><td>device</td><td>Flips the device between on and off.</td></tr>
+            <tr><td><code>set_level</code></td><td>device, number</td><td>Sets a level such as fan speed or brightness, usually 0 to 100 (the compiler warns outside that range). A level above 0 counts as on.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="grammar">
+        <h2><span class="h-no">05</span>Grammar &amp; LL(1)</h2>
+        <p>The grammar is stored as data inside the compiler (<code class="inline">src/grammar.cpp</code>). The compiler computes the FIRST and FOLLOW sets and fills the LL(1) parse table. If any cell had two productions, the grammar would not be LL(1). Each nonterminal is one function of the recursive-descent parser.</p>
+        <p class="ll-line" id="llLine"></p>
+        <div class="fig"><figcaption><span class="fig-no">FIG. 1</span>Productions <small>live from <span class="mono">/api/language</span></small></figcaption><div class="fig-body"><div class="gram-doc" id="docGrammar"><p class="muted">Loading the grammar from the compiler…</p></div></div></div>
+        <div class="fig" style="margin-top:16px"><figcaption><span class="fig-no">FIG. 2</span>The scanner's DFA <small>double circles accept a token; the lexer takes the longest match</small></figcaption><div class="fig-body" id="docDfa"></div></div>
+      </section>
+
+      <section id="pipeline">
+        <h2><span class="h-no">06</span>Compiler phases</h2>
+        <ol class="phase-doc">
+          <li><b>Lexical analysis</b><span>A hand-written scanner (a DFA with longest match) turns characters into tokens and reports bad characters with fixes.</span></li>
+          <li><b>Syntax analysis</b><span>Recursive descent over the LL(1) grammar; panic-mode recovery reports several errors in one run.</span></li>
+          <li><b>Abstract syntax tree</b><span>One expression tree with correct precedence, plus rules, branches and actions.</span></li>
+          <li><b>Semantic analysis</b><span>Symbol table, types (NUMBER, STATE, BOOL), argument checks, did-you-mean suggestions and rule analysis.</span></li>
+          <li><b>Intermediate code</b><span>Three-address code with temporaries, labels and source spans for every instruction.</span></li>
+          <li><b>Optimization</b><span>Basic blocks and a CFG; liveness and available-expressions dataflow; eight passes repeated until nothing changes.</span></li>
+          <li><b>Code generation</b><span>One structured emitter with four target back ends; if/else structure is recovered from the IR.</span></li>
+        </ol>
+      </section>
+
+      <section id="targets">
+        <h2><span class="h-no">07</span>Code targets</h2>
+        <table class="doc-table">
+          <thead><tr><th>Target</th><th>File</th><th>Runs with</th></tr></thead>
+          <tbody>
+            <tr><td>C</td><td><code>program.c</code></td><td><code>runtime/iot_runtime.c</code>, any C99 compiler. <em>Build &amp; run</em> in the Studio uses it.</td></tr>
+            <tr><td>Arduino / ESP32</td><td><code>program.ino</code></td><td><code>setup()</code>/<code>loop()</code> with a pin table; the sensor reads are stubs to connect to real pins.</td></tr>
+            <tr><td>Python</td><td><code>program.py</code></td><td><code>runtime/iot_runtime.py</code></td></tr>
+            <tr><td>JavaScript</td><td><code>program.js</code></td><td><code>runtime/iot_runtime.js</code> with Node.js</td></tr>
+          </tbody>
+        </table>
+        <p>The test suite runs every valid example through C, Python and JavaScript with several sensor inputs and checks that the outputs are identical. It also compiles each Arduino sketch.</p>
+      </section>
+
+      <section id="errors">
+        <h2><span class="h-no">08</span>Error catalogue</h2>
+        <p>Messages produced by the compiler for the bundled error examples. Where a fix is listed, the Studio shows it as a one-click button.</p>
+        <table class="doc-table err-table">
+          <thead><tr><th>Phase</th><th>Message</th><th>Quick fix</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ph lex">lexical</span></td><td>unexpected character '@'</td><td>Remove '@'</td></tr>
+            <tr><td><span class="ph lex">lexical</span></td><td>unexpected '=': assignment is not supported, did you mean '=='?</td><td>Replace '=' with '=='</td></tr>
+            <tr><td><span class="ph syn">syntax</span></td><td>expected 'IF', 'SENSOR' or 'DEVICE' at the start of a statement but found 'if' (keywords are uppercase, did you mean 'IF'?)</td><td>Change to 'IF'</td></tr>
+            <tr><td><span class="ph syn">syntax</span></td><td>expected 'THEN' after the condition but found 'turn_on'</td><td>Insert 'THEN'</td></tr>
+            <tr><td><span class="ph syn">syntax</span></td><td>expected ',' or ')' in the argument list of 'turn_on' but found end of file</td><td>Insert ')'</td></tr>
+            <tr><td><span class="ph sem">semantic</span></td><td>'fan' is not a registered device</td><td>Declare 'DEVICE fan'</td></tr>
+            <tr><td><span class="ph sem">semantic</span></td><td>'temprature' is not a declared sensor (did you mean 'temperature'?)</td><td>Change to 'temperature' · Declare the sensor</td></tr>
+            <tr><td><span class="ph sem">semantic</span></td><td>type mismatch: cannot compare STATE sensor 'door' with number 5</td><td>–</td></tr>
+            <tr><td><span class="ph sem">semantic</span></td><td>'set_level' expects 2 arguments set_level(device, number) but got 1</td><td>–</td></tr>
+            <tr><td><span class="ph sem">semantic</span></td><td>unknown action 'start' (available actions: turn_on, turn_off, toggle, set_level)</td><td>–</td></tr>
+            <tr><td><span class="ph warn">warning</span></td><td>this condition can never be true, so its actions never run</td><td>–</td></tr>
+            <tr><td><span class="ph warn">warning</span></td><td>this ELSE IF can never run: whenever its condition is true, an earlier condition of the same rule is already true</td><td>–</td></tr>
+            <tr><td><span class="ph warn">warning</span></td><td>conflict: rule 4 turns 'fan' off while rule 3 (line 15) turns 'fan' on, e.g. when temperature = 31 and door = OPEN. The later rule wins</td><td>–</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="ai">
+        <h2><span class="h-no">09</span>AI setup</h2>
+        <p>All options are free. Copy <code class="inline">.env.example</code> to <code class="inline">.env</code> and fill in what you want. With nothing set, a local Ollama model is used if Ollama is running; otherwise the built-in offline converter handles common sentence patterns.</p>
+        <div class="code-frame"><div class="code-frame-bar"><span class="dots"><i></i><i></i><i></i></span><span>.env</span></div>
+<pre><span class="s-comment"># auto (default), groq, gemini, ollama, offline</span>
+AI_PROVIDER=auto
+GROQ_API_KEY=            <span class="s-comment"># https://console.groq.com/keys</span>
+GEMINI_API_KEY=          <span class="s-comment"># https://aistudio.google.com/apikey</span>
+OLLAMA_MODEL=            <span class="s-comment"># e.g. qwen3, after `ollama pull qwen3`</span></pre></div>
+        <p class="callout"><b>Every answer is checked.</b> The model's DSL is compiled by <code>iotc</code>. If it has errors, the compiler's messages are sent back for one repair attempt, and the Studio shows whether the final answer is verified. An AI fix in the Problems tab is offered only when the error it targets is gone and no new errors appear.</p>
+        <p class="ai-status-line"><span class="badge" id="docsAi"><i class="led"></i>checking AI status…</span></p>
+      </section>
+
+      <section id="remote">
+        <h2><span class="h-no">10</span>Phone remote</h2>
+        <p>Start the server with <code class="inline">make remote</code>. Then click <b>Phone</b> in the Studio and scan the QR code with a phone on the same Wi-Fi. The phone shows the program's sensors; moving them updates the digital twin on the laptop through server-sent events.</p>
+        <p class="callout"><b>Security.</b> Requests from other devices can reach only the remote page and its two endpoints, and they need the random session key in the QR code. Compiling, running code and the AI stay available only on the laptop itself.</p>
+      </section>
+
+      <section id="cli">
+        <h2><span class="h-no">11</span>Command line</h2>
+        <pre class="cmd"><code>./iotc program.iot --c -o program.c</code></pre>
+        <table class="doc-table">
+          <thead><tr><th>Flag</th><th>Prints</th></tr></thead>
+          <tbody>
+            <tr><td><code>--tokens</code></td><td>The token stream</td></tr>
+            <tr><td><code>--ast</code> · <code>--dot</code></td><td>The syntax tree, as text or Graphviz</td></tr>
+            <tr><td><code>--symbols</code></td><td>The symbol table</td></tr>
+            <tr><td><code>--ir</code> · <code>--opt</code> · <code>--opt-trace</code></td><td>Three-address code before and after optimization, and every pass</td></tr>
+            <tr><td><code>--cfg</code></td><td>Basic blocks with liveness</td></tr>
+            <tr><td><code>--c</code> · <code>--target c|arduino|python|js</code> · <code>-o FILE</code></td><td>Generated code</td></tr>
+            <tr><td><code>--english</code></td><td>The program explained in plain English</td></tr>
+            <tr><td><code>--grammar</code> · <code>--language</code></td><td>FIRST/FOLLOW sets and the LL(1) table; the DFA and grammar as JSON</td></tr>
+            <tr><td><code>--json [--trace]</code></td><td>Everything, as used by the web app</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <footer class="site-foot" id="siteFooter"></footer>
+  <script type="module" src="js/docs.js"></script>
+</body>
+</html>

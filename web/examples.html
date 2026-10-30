@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Examples · Kelvin</title>
+  <meta name="description" content="Example IoT automation programs for the Kelvin compiler: smart home, greenhouse, thermostat, optimization, rule analysis and deliberate lexical, syntax and semantic errors.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='1' width='22' height='22' rx='6.5' fill='%23171512'/%3E%3Cpath d='M8 5.5v8.2' stroke='%23f3f0ea' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='16.6' r='2.6' fill='%23ff6a2b'/%3E%3Cpath d='m13.2 8.6 4 3.4-4 3.4' fill='none' stroke='%23f3f0ea' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script>try { var t = localStorage.getItem("iotc-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="site">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-nav" id="siteNav"></header>
+
+  <main id="main" class="container">
+    <header class="page-head">
+      <span class="eyebrow"><b>Examples</b>Compiled live</span>
+      <h1 class="page-title">Programs that show off <em>every phase</em>.</h1>
+      <p>Each card below was compiled by the real compiler as this page loaded. Some programs are correct; some contain deliberate mistakes so you can see how each phase reports them.</p>
+    </header>
+
+    <div class="filters" id="filters" role="group" aria-label="Filter examples"></div>
+    <div class="gallery" id="gallery" aria-live="polite"><p class="gallery-empty">Compiling the examples…</p></div>
+  </main>
+
+  <footer class="site-foot" id="siteFooter"></footer>
+  <script type="module" src="js/examples-page.js"></script>
+</body>
+</html>

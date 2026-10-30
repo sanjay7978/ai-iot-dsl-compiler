@@ -29,7 +29,7 @@ class RemoteAccessTest(unittest.TestCase):
         self.assertTrue(handler("192.168.1.20", f"/remote.html?k={self.key}").allowed())
 
     def test_phone_cannot_reach_the_compiler_or_ai(self):
-        for path in ("/api/compile", "/api/run", "/api/nl2dsl", "/api/fix", "/index.html", "/api/remote/events"):
+        for path in ("/api/compile", "/api/run", "/api/nl2dsl", "/api/fix", "/index.html", "/studio.html", "/api/remote/events"):
             self.assertFalse(handler("192.168.1.20", f"{path}?k={self.key}").allowed(), path)
 
     def test_phone_can_send_sensor_values(self):

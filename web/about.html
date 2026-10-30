@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About · Kelvin</title>
+  <meta name="description" content="About Kelvin, an AI-assisted DSL compiler for IoT automation built as a Compiler Design project: motivation, architecture, technology choices and team.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='1' width='22' height='22' rx='6.5' fill='%23171512'/%3E%3Cpath d='M8 5.5v8.2' stroke='%23f3f0ea' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='16.6' r='2.6' fill='%23ff6a2b'/%3E%3Cpath d='m13.2 8.6 4 3.4-4 3.4' fill='none' stroke='%23f3f0ea' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script>try { var t = localStorage.getItem("iotc-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="site">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-nav" id="siteNav"></header>
+
+  <main id="main" class="container">
+    <header class="page-head">
+      <span class="eyebrow"><b>About</b>Compiler Design project</span>
+      <h1 class="page-title">An AI-assisted DSL compiler<br>for <em>IoT automation</em>.</h1>
+    </header>
+
+    <section class="about-intro">
+      <div>
+        <p class="lead">Smart homes are programmed by people who are not programmers. Kelvin lets them describe what they want in English, and then treats that description the way a compiler treats source code: exactly, phase by phase, with clear errors.</p>
+        <p>An AI model turns a sentence like “if the temperature is above 30 and the door is open, turn on the fan” into a small rule language. From there, a compiler written by hand in C++ does the real work: scanning, LL(1) parsing, building the syntax tree, type checking and rule analysis, three-address code, CFG-based optimization and code generation for four targets.</p>
+        <p>The AI never has the last word. Every answer it gives is compiled and checked, and the website shows each phase of that work, so you can see how the compiler reached its result.</p>
+      </div>
+      <dl class="facts" id="facts">
+        <div><dt>lines of hand-written C++</dt><dd data-f="lines">–</dd></div>
+        <div><dt>automated tests passing</dt><dd data-f="tests">–</dd></div>
+        <div><dt>grammar productions, 0 conflicts</dt><dd data-f="productions">–</dd></div>
+        <div><dt>DFA states in the scanner</dt><dd data-f="dfa">–</dd></div>
+        <div><dt>example programs</dt><dd data-f="examples">–</dd></div>
+        <div><dt>lines of web front end</dt><dd data-f="web">–</dd></div>
+      </dl>
+    </section>
+
+    <section class="arch" id="architecture">
+      <header class="section-head">
+        <span class="eyebrow"><b>01</b>Architecture</span>
+        <h2>From a sentence to <em>running code</em>.</h2>
+      </header>
+      <div class="arch-diagram">
+        <div class="arch-col">
+          <h3>Input</h3>
+          <div class="box"><b>English</b><span>typed or spoken (Web Speech API)</span></div>
+          <div class="box"><b>AI assistant</b><span>Ollama, Groq, Gemini or offline rules</span><br><code>ai.py</code></div>
+          <div class="box"><b>DSL source</b><span>written by hand or by the AI</span></div>
+        </div>
+        <div class="arch-col">
+          <h3>Front end</h3>
+          <div class="box"><b>Lexer</b><code>lexer.cpp</code></div>
+          <div class="box"><b>Parser → AST</b><code>parser.cpp · ast.cpp</code></div>
+          <div class="box"><b>Semantic &amp; rule analysis</b><code>semantic.cpp · rule_analysis.cpp</code></div>
+        </div>
+        <div class="arch-col">
+          <h3>Middle</h3>
+          <div class="box"><b>Three-address IR</b><code>ir.cpp</code></div>
+          <div class="box"><b>CFG &amp; dataflow</b><code>cfg.cpp</code></div>
+          <div class="box"><b>Optimizer, 8 passes</b><code>optimizer.cpp</code></div>
+        </div>
+        <div class="arch-col">
+          <h3>Back end</h3>
+          <div class="box"><b>Code generation</b><span>C, Arduino, Python, JavaScript</span><br><code>codegen.cpp</code></div>
+          <div class="box"><b>Runtimes</b><code>runtime/iot_runtime.*</code></div>
+          <div class="box"><b>Digital twin</b><span>runs the optimized IR in the browser</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tech">
+      <div><h3>Hand-written, not generated</h3><p>No Lex, Yacc or parser generators. The scanner is a coded DFA and the parser is recursive descent, so every decision in the compiler can be read and explained.</p></div>
+      <div><h3>No dependencies</h3><p>The compiler is plain C++17. The server uses only the Python standard library. The website is vanilla HTML, CSS and JavaScript with self-hosted fonts, and it works offline.</p></div>
+      <div><h3>Tested across targets</h3><p>The test suite checks every phase, and it runs the C, Python and JavaScript output of each example with several inputs to confirm they all behave the same way.</p></div>
+    </section>
+
+    <section class="team" id="team">
+      <header class="section-head">
+        <span class="eyebrow"><b>02</b>Team</span>
+        <h2>The people behind it.</h2>
+      </header>
+      <div class="team-grid" id="teamGrid"></div>
+      <p class="team-note" id="teamNote"></p>
+    </section>
+  </main>
+
+  <footer class="site-foot" id="siteFooter"></footer>
+  <script type="module" src="js/about.js"></script>
+</body>
+</html>
