@@ -291,4 +291,4 @@ Built as the Compiler Design project at **Vellore Institute of Technology**, und
 
 ## License
 
-[MIT](LICENSE) © 2026 R. Sanjay, Settipalli Tejovardhan, Ashutosh
+[MIT](LICENSE) © 2026 R. Sanjay
